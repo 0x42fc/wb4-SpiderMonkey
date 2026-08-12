@@ -199,8 +199,8 @@
     frames.push(' '.repeat(start) + '^^^^');
   }
 
-  // Test facing report, one clean line, then only the caller's frames.
-  // Each frame shows the source line with a caret at the failure column.
+  // test facing report, one clean line, then only the caller's frames.
+  // each frame shows the source line with a caret at the failure column.
   // Non verbose drops WasmBuilder.js frames, verbose keeps everything.
   function formatWasmError(e) {
     let out;
@@ -257,12 +257,7 @@
     return out;
   }
 
-  // -------------------------------------------------------------------
-  // Test harness (formerly test/wbtests/wbtester.js). The seeds only load
-  // WasmBuilder.js, so the harness helpers live here and are exported as
-  // plain globals.
-  // -------------------------------------------------------------------
-
+  
   let failures = 0;
 
   function fail(label) {
@@ -278,7 +273,7 @@
     return true;
   }
 
-  // Best-effort: the test-file line of the failing check, with a caret.
+  // Best effort:) the test file line of the failing check with a caret.
   function checkSource_() {
     try {
       const st = new Error().stack;
@@ -549,7 +544,7 @@
     ThreadPrefix: 0xfe,
   };
 
-  // Single-byte numeric ops (Op enum, 0x45..0xc4).
+  // Single byte numeric ops (Op enum, 0x45..0xc4).
   const UNARY_BYTE = {
     'i32.eqz': 0x45,
     'i32.eq': 0x46,
@@ -681,7 +676,7 @@
     'i64.extend32_s': 0xc4,
   };
 
-  // Misc-prefix ops (MiscOp enum, prefixed by 0xfc).
+  // Misc prefix ops (MiscOp enum, prefixed by 0xfc).
   const MISC = {
     'i32.trunc_sat_f32_s': 0x00,
     'i32.trunc_sat_f32_u': 0x01,
@@ -704,7 +699,7 @@
     'memory.discard': 0x12,
   };
 
-  // Load/store ops: {op, sizeBytes} (Op enum).
+  // Load / store ops: {op, sizeBytes} (Op enum).
   const LOAD_STORE = {
     'i32.load': { op: 0x28, size: 4 },
     'i64.load': { op: 0x29, size: 8 },
@@ -731,7 +726,7 @@
     'i64.store32': { op: 0x3e, size: 4 },
   };
 
-  // Thread-prefix ops (ThreadOp enum, prefixed by 0xfe).
+  // Thread prefix ops (ThreadOp enum, prefixed by 0xfe).
   const THREAD_LOAD = {
     'i32.atomic.load': 0x10,
     'i64.atomic.load': 0x11,
@@ -783,7 +778,7 @@
     'i64_32u': 4,
   };
 
-  // SIMD ops (0xfd prefix). Shape: how the encoder writes immediates and
+  // SIMD ops (0xfd prefix) Shape: how the encoder writes immediates and
   // the checker types the operands:
   //   L    load:  pop addr, push v128
   //   S    store: pop addr, pop v128
@@ -1165,7 +1160,7 @@
       return this;
     }
 
-    // Unsigned LEB128. Accepts numbers (uint32 range) and BigInt.
+    // Unsigned LEB128, Accepts numbers (uint32 range) and BigInt.
     writeU32LEB(v) {
       assert((typeof v === 'bigint') ||
         (Number.isInteger(v) && v >= 0), 'writeU32LEB: bad value ' + v);
@@ -1182,7 +1177,7 @@
       return this;
     }
 
-    // Unsigned LEB128, no 32-bit limit (memory / table limits).
+    // Unsigned LEB128, no 32 bit limit (memory / table limits).
     writeU64LEB(v) {
       assert((typeof v === 'bigint') ||
         (Number.isInteger(v) && v >= 0), 'writeU64LEB: bad value ' + v);
@@ -1199,7 +1194,7 @@
       return this;
     }
 
-    // Signed LEB128 (32-bit value, range -2^31..2^31-1).
+    // Signed LEB128 (32bit value, range -2^31...  2^31-1).
     writeS32LEB(v) {
       assert(Number.isInteger(v), 'writeS32LEB: not an integer: ' + v);
       assert(v >= -0x80000000 && v <= 0x7fffffff,
@@ -1399,7 +1394,6 @@
   }
 
   // Helpers
-
   // Handles double loading, `instanceof` breaks on redefinition, name still works.
   function isFunctionBuilder(v) {
     return v instanceof WasmFunctionBuilder ||
@@ -1447,7 +1441,7 @@
         t === 'nullanyref' || t === 'nullexnref');
   }
 
-  // Lane count from the name (i8x16 -> 16) or from the byte size.
+  // Lane count from the name (i8x16 ==> 16) or from the byte size.
   function simdLaneCount(name, byteSize) {
     const m = /^v?[fi](\d+)x(\d+)/.exec(name);
     if (m) return Number(m[2]);
@@ -1455,7 +1449,7 @@
     return 0;
   }
 
-  // Instruction encoder. finalEnd appends the closing 0x0b if left out.
+  // Instruction encoder, finalEnd appends the closing 0x0b if left out.
   // Reject wrong argument counts before encoding writes bad immediates.
   function expectArgCount_(name, args, min, max) {
     const want = (min === max)
@@ -1615,7 +1609,7 @@
     }
 
     encodeOne(name, args, ctx, w, controlDepth) {
-      // control flow
+      // control flow.
       if (name === 'unreachable') {
         w.writeU8(OP.Unreachable);
         return;
@@ -1886,7 +1880,7 @@
         return;
       }
 
-      // memory load/store
+      // memory load/store.
       if (Object.prototype.hasOwnProperty.call(LOAD_STORE, name)) {
         ctx.requireMemory();
         const info = LOAD_STORE[name];
@@ -1897,7 +1891,7 @@
         return;
       }
 
-      // memory size/grow
+      // memory size/grow!
       if (name === 'memory.size') {
         ctx.requireMemory();
         w.writeU8(OP.MemorySize);
@@ -1911,7 +1905,7 @@
         return;
       }
 
-      // misc prefix (0xfc)
+      // misc prefix (0xfc).
       if (Object.prototype.hasOwnProperty.call(MISC, name)) {
         const op = MISC[name];
         w.writeU8(OP.MiscPrefix);
@@ -2068,7 +2062,7 @@
         }
       }
 
-      // single-byte numeric ops
+      // single byte numeric ops
       if (Object.prototype.hasOwnProperty.call(UNARY_BYTE, name)) {
         w.writeU8(UNARY_BYTE[name]);
         return;
@@ -2106,7 +2100,7 @@
             break;
           }
           case 'C':
-            // v128.const: raw payload or [laneType, laneValues].
+            // v128.const, raw payload or [laneType, laneValues].
             if (args.length >= 2 && typeof args[0] === 'string' &&
               Array.isArray(args[1])) {
               this.writeV128Bytes_(args, w);
@@ -2119,7 +2113,7 @@
             break;
           case 'EX':
           case 'RP': {
-            // Extract/replace lane: write lane index as a U8.
+            // Extract / replace lane: write lane index as a U8.
             assert(args.length >= 1, 'extract_lane/replace_lane needs a lane index');
             const lanes = simdLaneCount(name, undefined);
             assert(lanes === 0 || (Number.isInteger(args[0]) &&
@@ -2130,7 +2124,7 @@
             break;
           }
           default:
-            // No immediates for splat/unary/binary/etc.
+            // No immediates for splat / unary / binary / etc.
             break;
         }
         return;
@@ -2199,10 +2193,10 @@
       throw new WasmBuilderError('unknown instruction "' + name + '"');
     }
 
-    // Write the 16 bytes of a v128.const lane payload. Accepts:
-    //   a lane-type name + array of lane values, e.g. ['i32x4', [1,2,3,4]]
-    //   a 32-hex-digit string
-    //   a BigInt (little-endian)
+    // Write the 16 bytes of a v128.const lane payload, accepts:
+    //   a lane type name + array of lane values, e.g.. ['i32x4', [1,2,3,4]]
+    //   a 32-hex digit string
+    //   a BigInt (little endian)
     //   an array of 16 byte values
     writeV128Bytes_(v, w) {
       // Lane type form: [laneType, laneValues].
@@ -2274,7 +2268,7 @@
       }
     }
 
-    // Write the lane indices of i8x16.shuffle (16 bytes, each 0..31).
+    // write the lane indices of `i8x16.shuffle` [ 16 bytes, each 0..31 ]
     writeLaneIndices_(v, w, count) {
       assert(Array.isArray(v) && v.length === count, 'shuffle expects ' + count + ' lanes');
       for (let i = 0; i < count; i++) {
@@ -2283,8 +2277,8 @@
       }
     }
 
-    // Heap type immediate for ref.test / ref.cast / br_on_cast.
-    // Type indices are SLEB128; names are single-byte (writeHeapType).
+    // Heap type immediate for `ref.test` / `ref.cast` / `br_on_cast`.
+    // Type indices are SLEB128, names are single byte (writeHeapType).
     writeHeapTypeArg_(ht, w) {
       if (typeof ht === 'number') {
         assert(Number.isInteger(ht) && ht >= 0, 'heap type index must be >= 0');
@@ -2385,7 +2379,7 @@
     }
   }
 
-  // Stack type checker. Checks operand stack types before the engine does.
+  // Stack type checker, checks operand stack types before the engine does.
   // Strict on scalars, lenient on refs (accepts subtypes).
   const BOTTOM = 'bottom';
 
@@ -2444,7 +2438,7 @@
     }
     if (isPlainObject(actual) && isPlainObject(expected)) {
       // Same heap target, or actual is a subtype via the supertype chain.
-      // Nullable refs do not match non-nullable slots.
+      // Nullable refs do not match "non" nullable @slots.
       if (actual.ref === expected.ref) {
         // Omitted nullable means nullable (matches writeValueType).
         const expectedNullable = expected.nullable !== false;
@@ -2517,7 +2511,7 @@
         this.curIndex_ = i;
         this.checkOne_(name, args);
       }
-      // End-of-function checks are not tied to one instruction.
+      // [EOF] End of function checks are not tied to one instruction.
       this.curInstr_ = undefined;
       this.curIndex_ = -1;
       if (!this.err_) {
@@ -2593,7 +2587,7 @@
       return actual;
     }
 
-    // Human-readable name of a checker type for error messages.
+    // readable name of a checker type for error messages.
     typeName_(t) {
       if (typeof t === 'string') return t;
       if (t === BOTTOM) return 'bottom';
@@ -2640,7 +2634,7 @@
         this.error_('instruction appears after the outermost end');
         return;
       }
-      // Fixed-arity immediates: reject wrong argument counts up front so
+      // Fixed arity immediates, reject wrong argument counts up front so
       // bad inputs fail here with attribution, not in the encoder.
       const fixedOne = ['local.get', 'local.set', 'local.tee',
         'global.get', 'global.set',
@@ -2663,11 +2657,11 @@
           // The condition sits on top of any block parameters.
           this.popExpected_('i32');
         }
-        // Consume the block's parameters; frame height is the stack below them.
+        // Consume the block's parameters,, frame height is the stack below them.
         this.popN_(bt.params);
         this.control_.push({
           kind: name,
-          // Branches target results; loops target their parameters.
+          // Branches target results, loops target their parameters.
           labelTypes: name === 'loop' ? bt.params : bt.results,
           endTypes: bt.results,
           blockParams: bt.params,
@@ -2675,7 +2669,7 @@
           height: this.stack_.length,
           unreachable: false,
         });
-        // Re-push the parameters as the block body's initial stack.
+        // repush the parameters as the block bodys initial stack!
         for (const p of bt.params) this.push_(p);
         return;
       }
@@ -2687,7 +2681,7 @@
         }
         frame.hasElse = true;
         if (!frame.unreachable) {
-          // The then-branch must leave the if's results on the stack.
+          // The then branch must leave the ifs results on the stack.
           for (let i = frame.endTypes.length - 1; i >= 0; i--) {
             this.popExpected_(frame.endTypes[i]);
           }
@@ -2696,7 +2690,7 @@
               ' value(s) left on the stack at end of then-branch');
           }
         }
-        // Restore entry stack, re-push params for the false branch.
+        // Restore entry stack, repush params for the false branch!!
         this.stack_.length = frame.height;
         for (const p of frame.blockParams) this.push_(p);
         frame.unreachable = false;
@@ -2736,7 +2730,7 @@
               ' value(s) left on the stack at end of block');
           }
         } else if (this.stack_.length - frame.height > frame.endTypes.length) {
-          // Dead code still pushes results; reject an over-full stack.
+          // Dead code still pushes results reject an over full stack!!
           this.error_('unused values not explicitly dropped by end of block');
         }
         this.stack_.length = frame.height;
@@ -2932,7 +2926,7 @@
         this.popExpected_('i32');
         const t2 = this.pop_();
         const t1 = this.pop_();
-        // Untyped select is numeric-only; refs need select_t.
+        // Untyped select is numeric only refs need select_t.
         if ((t1 !== BOTTOM && this.isRefLike_(t1)) ||
           (t2 !== BOTTOM && this.isRefLike_(t2))) {
           this.error_('select on reference types requires select_t');
@@ -3125,7 +3119,7 @@
         return;
       }
       if (name === 'ref.as_non_null') {
-        // (ref null ht) -> (ref ht): strip nullability.
+        // (ref null ht) -> (ref ht), strip nullability.
         const t = this.pop_();
         if (!this.isRefLike_(t)) {
           this.error_('ref.as_non_null: expected a reference, got ' + this.typeName_(t));
@@ -3135,7 +3129,7 @@
         return;
       }
       if (name === 'br_on_null') {
-        // Branch takes the ref; fallthrough carries t* plus a non-null ref.
+        // Branch takes the ref, fallthrough carries t* plus a non-null ref.
         const depth = args[0];
         if (!(Number.isInteger(depth) && depth >= 0 && depth < this.control_.length)) {
           this.error_('br_on_null: depth ' + depth + ' out of range');
@@ -3211,7 +3205,7 @@
         return;
       }
 
-      // atomics (0xfe prefix) -- before numeric ops, or they'd be misread.
+      // atomics (0xfe prefix)  before numeric ops, or they'd be misread.
       if (name.startsWith('i32.atomic.') || name.startsWith('i64.atomic.')) {
         const valType = name.startsWith('i64.atomic.') ? 'i64' : 'i32';
         const addrType = this.memAddrType_(args);
@@ -3227,7 +3221,7 @@
           this.popExpected_(addrType);
           this.push_(valType);
         } else {
-          // atomic rmw (add/sub/and/or/xor/xchg, incl. width variants).
+          // atomic rmw (add/sub/and/or/xor/xchg, incl width variants).
           this.popExpected_(valType);
           this.popExpected_(addrType);
           this.push_(valType);
@@ -3250,7 +3244,7 @@
       }
       if (name === 'memory.atomic.fence') return;
 
-      // conversions: exact types from the CONV table.
+      // conversions, exact types from the CONV table.
       if (Object.prototype.hasOwnProperty.call(CONV, name)) {
         const [src, dst] = CONV[name];
         this.popExpected_(src);
@@ -3258,7 +3252,7 @@
         return;
       }
 
-      // single-byte numeric ops.
+      // single byte numeric ops.
       if (name.startsWith('i32.') || name === 'i32.eqz') {
         if (this.isBinary_(name)) {
           this.popExpected_('i32'); this.popExpected_('i32'); this.push_('i32');
@@ -3373,8 +3367,8 @@
           unreachable: false,
         });
         for (const p of bt.params) this.push_(p);
-        // Validate the catches: [tagRef|'all', depth, captureExnRef?].
-        // A catch depth targets the frame d levels outside the try_table;
+        // Validate the catches, [tagRef|'all', depth, captureExnRef?]?
+        // a catch depth targets the frame d levels outside the `try_table`
         // the payload (tag params + exnref when capturing) must be a
         // subtype of the target label's types.
         const catches = args[1];
@@ -3782,8 +3776,8 @@
               ' does not match source type ' + this.typeName_(srcRef));
             break;
           }
-          // Flags bit 0: source is nullable. A non-null source must not
-          // receive a possibly-null operand (the engine enforces this).
+          // Flags bit 0: source is nullable. A nonnull source must not
+          // receive a possibly null operand (the engine enforces this!)
           if ((flags & 1) === 0 && operand !== BOTTOM &&
             this.isNullableRef_(operand)) {
             this.error_('br_on_cast: source type is non-null but the operand ' +
@@ -3832,7 +3826,7 @@
       }
     }
 
-    // Validate a SIMD lane index the engine rejects out-of-range ones.
+    // Validate a SIMD lane index the engine rejects out of range ones.
     checkLaneIndex_(name, byteSize, lane) {
       const lanes = simdLaneCount(name, byteSize);
       if (lanes > 0 && !(Number.isInteger(lane) && lane >= 0 && lane < lanes)) {
@@ -3883,7 +3877,7 @@
         return 'anyref';
       }
       if (typeof typeRef === 'string') {
-        // Abstract heap type name or a ref-type name.
+        // Abstract heap type name or a ref type name.
         const map = {
           any: 'anyref',
           eq: 'eqref',
@@ -3903,7 +3897,7 @@
       return 'anyref';
     }
 
-    // Strip nullability (ref null ht) -> (ref ht).
+    //  nullability (ref null ht) -> (ref ht).
     nonNullRef_(t) {
       if (t === BOTTOM) return BOTTOM;
       if (isPlainObject(t) && t.ref !== undefined) {
@@ -3915,7 +3909,7 @@
       return t;
     }
 
-    // True if the checker type looks like a reference type.
+    // true if the checker type looks like a reference type
     isRefLike_(t) {
       if (t === BOTTOM) return true;
       if (isPlainObject(t) && t.ref !== undefined) return true;
@@ -3945,7 +3939,7 @@
       return entry ? entry.element : null;
     }
 
-    // Element type as a checker type; typed elements stay concrete for call_ref.
+    // Element type as a checker type typed elements stay concrete for call_ref.
     tableElemType_(ref) {
       const idx = this.builder_.resolveTable(ref);
       const elem = this.tableElemAt_(idx);
@@ -4523,7 +4517,7 @@
       return set;
     }
 
-    // Whether a function index is a valid ref.func target.
+    // whether a function index is a valid ref.func target.
     isFuncDeclared(funcIdx) {
       return this.declaredFuncIndices_().has(funcIdx);
     }
@@ -4851,7 +4845,7 @@
     }
 
     encode() {
-      // All failures leave as WasmBuilderError; other errors are wrapped
+      // All failures leave as WasmBuilderError other errors are wrapped
       // with the original as `cause`.
       try {
         return this.encodeInternal_();
@@ -4871,7 +4865,7 @@
     }
 
     encodeInternal_() {
-      // 1. Pre-pass: materialize implicitly-referenced function types.
+      //  Prepass, materialize implicitly referenced function types.
       this.collectImplicitTypes_();
 
       // 2. Resolved index maps (imports first, then definitions).
@@ -4888,12 +4882,12 @@
       const enc = new InstrEncoder(this);
 
       // Type Section
-      // Each type entry is a rectype: a bare subtype (implicit rec group of
+      // Each type entry is a rectype, a bare subtype (implicit rec group of
       // one) or a 0x4e rec group spanning consecutive rec subtypes. The outer
       // vec count is the number of rectypes, not subtypes.
       if (this.types_.length > 0) {
         w.writeSection(SECT.TYPE, (ww) => {
-          // First pass: count rectypes so we can write the outer vec count.
+          // First pass count rectypes so we can write the outer vec count.
           let rectypeCount = 0;
           let i = 0;
           while (i < this.types_.length) {
@@ -4907,7 +4901,7 @@
             }
           }
           ww.writeU32LEB(rectypeCount);
-          // Second pass: write each rectype.
+          // Second pass write each rectype.
           i = 0;
           while (i < this.types_.length) {
             if (this.types_[i].rec) {
@@ -5417,5 +5411,6 @@
 /* 
 
 *[END OF THE BUILDER]* 
-
+*[Credit | 0x42fc;]
 */
+
