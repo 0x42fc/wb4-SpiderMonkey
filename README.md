@@ -1,47 +1,38 @@
-Usage of `WasmModuleBuilder`.
+## Usage of WasmModuleBuilder.
+
+This 'README' demonstrates how a builder API can construct a valid Wasm module by simply importing WasmBuilder.js. It provides a straightforward way to define the structure of a WebAssembly module without manually constructing its binary representation.
 
 
-
-Load the builder before using any WebAssembly builder API:
-
+First of all, load the builder before using any WebAssembly builder API:
 ```js
-load("relative/path");
+load("wbunit/wasm/WasmBuilder.js");
 ```
+Once the builder has been loaded, the WasmModuleBuilder API can be used to construct the module and define its required components.
 
-After loading it in JS atomsphere, these globals are available:
-
-```js
-WasmModuleBuilder
-WasmFunctionBuilder
-WasmBuilderError
-```
-
-We can check manually whether it is imported or *not*, simply you can use `typeof (WasmModuleBuilder);`, note that, use uppercase. 
-
+We can manually check whether it is imported or not. Simply use typeof WasmModuleBuilder. Note that you should use uppercase.
 ```js
 print(typeof WasmModuleBuilder, "before?");
 
 try {
-    load("test/mjsunit/wasm/WasmBuilder.js");
-    print(typeof WasmModuleBuilder, "after!");
+load("wbunit/wasm/WasmBuilder.js")
+ print(typeof WasmModuleBuilder, "after!");
 } catch (e) {
     print("load can't failed:", e);
 }
 
 /*
 
-* cs@ExplNOit MINGW64 /d/path?
-* $ ./js [case].js
+* cs@ExplNOit MINGW64 
+* $ ./js test.js
 * $ undefined before?
-* $ function after
+* $ function after!
 
 */
 ```
 
-Before module creation, we *must* load it, and provide "Builde"r **API** to **JS shell**.
+Before module creation, we must load it and provide the "Builder" API to the JS shell.
 
 Create a module builder:
-
 ```js
 const mb = new WasmModuleBuilder(); // imported.
 ```
@@ -72,7 +63,7 @@ addStart
 If the same function type is declared more than once, the **existing** *type* index
 is "reused".
 
-Function signatures:
+##### Function signatures:  
 A function signature contains `params` and `results`.
 
 Two `i32` parameters and one `i32` result:
@@ -111,7 +102,7 @@ One parameter and no result:
 }
 ```
 
-Function locals
+##### Function locals
 
 Add one local:
 
@@ -136,7 +127,7 @@ f.addLocal('i32', 'value');
 
 The name can then be *used* by local instructions.
 
-Function bodies
+##### Function bodies
 Set the function body with `body()`:
 
 ```js
@@ -178,7 +169,7 @@ The exported function can then be called from **JavaScript** :
 instance.exports.add(2, 3);
 ```
 
-Function start
+##### Function start
 Mark a function as the module start function:
 
 ```js
@@ -198,9 +189,9 @@ the module builder can also set the start function directly:
 mb.addStart(funcRef);
 ```
 
-WebAssembly value types
+##### WebAssembly value types
 
-Numeric types:
+- Numeric types:
 
 ```text
 i32
@@ -209,13 +200,13 @@ f32
 f64
 ```
 
-SIMD:
+- SIMD:
 
 ```text
 v128
 ```
 
-Reference types:
+- Reference types:
 
 ```text
 funcref
@@ -228,7 +219,7 @@ arrayref
 exnref
 ```
 
-Typed GC references use:
+- Typed GC references use:
 
 ```js
 {
@@ -246,7 +237,7 @@ or:
 }
 ```
 
-Packed field types
+- Packed field types
 
 The builder accepts:
 
@@ -276,7 +267,7 @@ mb.addGlobal('i64', 0n, true);
 Numeric i64 literals are accepted and converted with `BigInt`; prefer
 BigInt for values that do not fit exactly in a double.
 
-Control flow instructions
+##### Control flow instructions
 
 Block:
 
@@ -356,7 +347,7 @@ Other control instructions:
 ['select_t', [<types>]]
 ```
 
-Block types
+##### Block types
 
 An empty block can use:
 
@@ -411,7 +402,7 @@ Use:
 For an `if` block with parameters, push the block parameters before the
 condition.
 
- Branch tables
+##### Branch tables
 
 A `br_table` instruction has this form:
 
@@ -423,7 +414,7 @@ The branch label values are pushed before the selector.
 
 The selector is an i32 value.
 
-Select
+##### Select
 
 Basic select:
 
@@ -439,7 +430,7 @@ Typed select:
 
 For `select_t`, the first value is selected when the condition is non-zero.
 
-Constants
+##### Constants
 
 i32:
 
@@ -477,7 +468,7 @@ Reference null:
 ['ref.null', 'func']
 ```
 
- Local instructions
+ ##### Local instructions
 
 Local access can use an index or a registered local name.
 
@@ -487,9 +478,9 @@ Local access can use an index or a registered local name.
 ['local.tee', 0]
 ```
 
-Global instructions
+##### Global instructions
 
-Global access can use an index; imported globals can also be referenced
+Global access can use an index imported globals can also be referenced
 by their import field name. Defined globals created with `addGlobal()`
 cannot be named. The same applies to defined tables, memories, and tags
 (only imports carry names).
@@ -499,7 +490,7 @@ cannot be named. The same applies to defined tables, memories, and tags
 ['global.set', 0]
 ```
 
-Direct calls
+##### Direct calls
 
 Call a function by index or name:
 
@@ -507,7 +498,7 @@ Call a function by index or name:
 ['call', funcRef]
 ```
 
-Indirect calls
+##### Indirect calls
 
 Call through a table:
 
@@ -523,9 +514,9 @@ An explicit table can be supplied:
 ['call_indirect', typeRef, tableRef]
 ```
 
-Tail calls
+##### Tail calls
 
-Return-call:
+Return call:
 
 ```js
 ['return_call', funcRef]
@@ -2010,9 +2001,6 @@ const module = mb.compile();
 const instance = mb.instantiate({ imports });
 ```
 
-`compile()` runs the engine's authoritative validation and `instantiate()`
-performs compilation plus instantiation (with an import object). Engine
-rejection throws `WasmEngineError`; the bytes are never silently altered.
 
 #### Hex output
 
@@ -2047,6 +2035,143 @@ tagDefs
 elems
 datas
 exports
+```
+
+There is *an* example:
+```js
+load("...");
+
+
+const mb = new WasmModuleBuilder();
+
+/*
+ * Function type:
+ * () -> i32
+ */
+const type = mb.addType({
+    params: [],
+    results: ['i32']
+});
+
+/*
+ * Function that returns 0x1337.
+ */
+const target = mb.addFunction("target", type);
+
+target.body([
+    ['i32.const', 0x444444444]
+]);
+
+/*
+ * funcref table:
+ *
+ * index 0
+ * index 1
+ */
+const table = mb.addTable('funcref', 2, 2);
+
+/*
+ * Put target into table[0].
+ */
+mb.addElemSegment({
+    table: table,
+    offset: 0,
+    indices: [target]
+});
+
+/*
+ * Test function:
+ */
+const run = mb.addFunction("run", {
+    params: [],
+    results: ['i32']
+});
+
+run.body([
+
+    /*
+     * table.set(table, index, ref)
+     *
+     * table[1] = target
+     */
+    ['i32.const', 1],
+    ['ref.func', target],
+    ['table.set', table],
+
+    /*
+     * table.get(table, index)
+     *
+     * Retrieve table[1].
+     *
+     * The returned `funcref` is dropped because the
+     * next operation will independently use the table.
+     */
+    ['i32.const', 1],
+    ['table.get', table],
+    ['drop'],
+
+    /*
+     * table.fill(table, start, value, length)
+     *
+     * Fill:
+     *
+     * table[0] = target
+     * table[1] = target
+     */
+    ['i32.const', 0],
+    ['ref.func', target],
+    ['i32.const', 2],
+    ['table.fill', table],
+
+    /*
+     * call_indirect(type, table)
+     *
+     * index = 1
+     *
+     * table[1] now contains target.
+     */
+    ['i32.const', 1],
+    ['call_indirect', type, table]
+]);
+
+run.exportAs("run");
+
+
+print("summary();");
+print(JSON.stringify(mb.summary()));
+
+print("hex();");
+const hex = mb.hex();
+print(hex);
+
+const wasmModule = new WebAssembly.Module(mb.encode());
+const instance = new WebAssembly.Instance(wasmModule, {});
+
+print("Expected!");
+print(instance.exports.run());
+
+/*
+summary();
+{"types":1,
+"funcImports":0,
+"funcDefs":2,
+"tableImports":0,
+"tableDefs":1,
+"memImports":0,
+"memDefs":0,
+"globalImports":0,
+"globalDefs":0,
+"tagImports":0,
+"tagDefs":0,
+"elems":1,
+"datas":0,
+"exports":0}
+
+hex();
+0061736d010000000105016000017f0303020000040501700102020707010372756e00010907010041000b01000a2502070041c48891220b1b004101d2002600410125001a4100d2004102fc110041011100000b
+Expected!
+71582788
+*/
 ```
 
 #### Compiling a module
@@ -2099,50 +2224,10 @@ stack type mismatch
 other invalid builder input
 ```
 
-Errors carry structured fields:
-
-```text
-code     machine readable category, e.g. 'stack-check', 'encode',
-         'engine-compile', 'engine-instantiate', 'internal'
-cause    the underlying error when this error wraps another one
-         (the engine's CompileError/LinkError, or a raw JS exception)
-context  extra diagnostic data (module summary, byte count, hex preview)
-```
-
-The printed error name is a semantic category: `CompilationError`,
-`CompileError`, `InstantiateError`, or `InternalError` (an `internal`
-failure prints `*** WasmBuilder: an error occurred!` and the stack).
-The class (`WasmBuilderError` / `WasmEngineError`) and the `code` field
-remain available for programmatic checks.
-
-Function body failures also carry:
-
-```text
-definitionFrame  where body() was called (file, line, col)
-instruction      the failing instruction
-instructionIndex its 0-based position in the body
-instructionOccurrence how many identical instructions precede it
-```
-
-The printed report shows the category and message (including the
-instruction position, e.g. `(instruction 2 of 4)`), then the source
-line that declares the failing instruction with a caret under it.
-
-Engine rejection during `compile()`/`instantiate()` throws `WasmEngineError`
-(a `WasmBuilderError` subclass) chaining the engine's message as `cause`.
-There is no fallback that retries or alters the encoded bytes.
-
 #### Builder validation
 
 The builder performs its own validation when encoding.
-
 This includes a stack "type checker".
-
-A module that passes builder validation can still be rejected by the WebAssembly
-engine.
-
-This makes 'builder' *versus* 'engine' testing useful when checking for differences
-between the builder and the engine.
 
 #### Builder and engine are separate
 
@@ -2172,7 +2257,7 @@ Testcase:
 Load the builder:
 
 ```js
-load("relative/path");
+load("..WasmBuilder.js..");
 ```
 
 Create the module:
@@ -2300,10 +2385,6 @@ provides CommonJS support.
 
 The SpiderMonkey shell examples use:
 
-```js
-load("relative/path");
-```
-
 #### Memory64 host values
 
 Use BigInt when working with i64 values.
@@ -2328,128 +2409,43 @@ in this build.
 
 The supplied SpiderMonkey build rejects `memory.discard`.
 
-we would *not* use it in tests that must be accepted by this build.
-The builder contains a code path for it, but the engine *rejects* the module.
-
 
 # Refereces:
-#### External WebAssembly reference
 
-Used the official WebAssembly documentation for the core WebAssembly language
-and its specifications.
+Use the provided specification when checking instruction behavior, types, validation
+rules, module sections, and binary encoding.
+
+#### External WebAssembly reference
 
 ```text
 [https://webassembly.org/]
 ```
-
-#### WebAssembly JavaScript API reference
-
-The JavaScript API used by the examples is documented by MDN.
-
 ```text
  [https://developer.mozilla.org/en-US/docs/WebAssembly]
 ```
-
-The WebAssembly JavaScript API reference covers modules, instances, memory,
-tables, globals, validation, compilation, and instantiation.
-
 ```text
  [https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface]
 ```
-
-#### WebAssembly JavaScript API usage
-
-For examples of compiling and instantiating WebAssembly from JavaScript:
-
 ```text
 [https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Using_the_JavaScript_API]
 ```
-
-#### SpiderMonkey documentation
-
-For SpiderMonkey engine documentation:
-
 ```text
  [https://firefox-source-docs.mozilla.org/js/]
 ```
-
-#### SpiderMonkey source documentation
-
-Firefox Source Docs provide documentation for the SpiderMonkey engine and its
-JavaScript and WebAssembly implementation.
-
 ```text
 [https://firefox-source-docs.mozilla.org/js/]
 ```
-
-#### Firefox WebAssembly documentation
-
-Firefox Source Docs also provide documentation for WebAssembly-related engine
-components.
-
 ```text
  [https://firefox-source-docs.mozilla.org/]
 ```
-
-#### WASI documentation
-
-WASI is separate from the core WebAssembly instruction set.
-
-For official WASI documentation:
-
 ```text
 [https://wasi.dev/]
 ```
-
-
-#### WebAssembly specification reference
-
-For the core WebAssembly specification:
-
 ```text
 https://webassembly.github.io/spec/
-```
-
-Use the specification when checking instruction behavior, types, validation
-rules, module sections, and binary encoding.
-
-#### Builder source
-
-The authoritative source for this document is the `ModuleBuilder.js` file in
-the SpiderMonkey tree.
-
-When behavior in this guide differs from another WebAssembly implementation,
-the builder source should be checked first for builder-specific behavior.
-
-#### Flow
-
-A complete SpiderMonkey WebAssembly test can follow this simple pattern:
-
-```js
-load("ModuleBuilder.js");
-
-const mb = new WasmModuleBuilder();
-
-const f = mb.addFunction("test", {
-  params: [],
-  results: ['i32']
-});
-
-f.body([
-  ['i32.const', 42],
-  ['end']
-]);
-
-f.exportAs("test");
-
-const bytes = mb.encode();
-const module = new WebAssembly.Module(bytes);
-const instance = new WebAssembly.Instance(module, {});
-
-assertEq(instance.exports.test(), 42);
 ```
 
 
 
 *[END OF THE DOCUMENTATION]*  
-*[ Author: **ExploiNot@** from !csLAB| **ShujaQureshi** ]*
+*[ Author: **ShujaQureshi** ]*
