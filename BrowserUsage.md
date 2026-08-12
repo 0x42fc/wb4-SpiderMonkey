@@ -77,8 +77,8 @@ Open the *browser* **Developer Tools** and *check* the Console.
 ### Expected Output
 
 ```text
-WebAssembly.Instance { }
-reached
+WebAssembly.Instance {  }
+reached test.html:5448:9
 ```
 
 Depending on the browser, the console may also display a warning such as:
