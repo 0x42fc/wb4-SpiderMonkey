@@ -2410,7 +2410,7 @@ in this build.
 The supplied SpiderMonkey build rejects `memory.discard`.
 
 
-# Refereces:
+# References:
 
 Use the provided specification when checking instruction behavior, types, validation
 rules, module sections, and binary encoding.
