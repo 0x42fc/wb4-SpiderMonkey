@@ -1,4 +1,4 @@
-load("test/mjsunit/wasm/WasmBuilder.js");
+load("wbunit/wasm/WasmBuilder.js");
 
 const mb = new WasmModuleBuilder();
 const f = mb.addFunction("is_null", { params: ['externref'], results: ['i32'] });
