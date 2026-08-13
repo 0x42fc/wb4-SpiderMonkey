@@ -1,4 +1,4 @@
-load("test/mjsunit/wasm/WasmBuilder.js");
+load("wbunit/wasm/WasmBuilder.js");
 
 const mem = new WebAssembly.Memory({ initial: 1 });
 const mb = new WasmModuleBuilder();
