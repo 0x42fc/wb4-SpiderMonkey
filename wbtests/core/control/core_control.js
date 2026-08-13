@@ -32,11 +32,9 @@ f.body([
 ]);
 
 f.exportAs("sum_below");
+
 const instance = mb.instantiate({});
 
 const s5 = instance.exports.sum_below(5);
-
 const s1 = instance.exports.sum_below(1);
-
-const s0 = instance.exports.sum_below(0)
-;
+const s0 = instance.exports.sum_below(0);
