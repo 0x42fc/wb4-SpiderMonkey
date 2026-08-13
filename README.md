@@ -38,13 +38,13 @@ const mb = new WasmModuleBuilder(); // imported.
 ```
 
 The builder stores the **types, functions, memories, tables, globals, segments,
- imports, exports**, and other module data until `encode()` *is* called.
+ imports, exports**, and other module data until `Encode()` is called.
 
  We are adding a function,
 and added a function with a name and signature:
 
 ```js
-const f = mb.addFunction("add", {
+const f = mb.AddFunction("add", {
   params: ['i32', 'i32'],
   results: ['i32']
 });
@@ -53,11 +53,10 @@ The function name can be omitted,
 a supplied name must be *unique*.
 a function name can later be used by:
 
-```00/asm
+```text
 call
 ref.func
-exportFunction
-addStart
+ExportFunction
 ```
 
 If the same function type is declared more than once, the **existing** *type* index
@@ -107,13 +106,13 @@ One parameter and no result:
 Add one local:
 
 ```js
-const index = f.addLocal('i32');
+const index = f.AddLocal('i32');
 ```
 
-Add several locals:
+Add a named local:
 
 ```js
-const first = f.addLocals('i32', 4);
+f.AddLocal('i32', 'value');
 ```
 
 Parameters use the first local indices.
@@ -122,16 +121,16 @@ Additional locals follow the parameters.
 A local can have a name:
 
 ```js
-f.addLocal('i32', 'value');
+f.AddLocal('i32', 'value');
 ```
 
 The name can then be *used* by local instructions.
 
 ##### Function bodies
-Set the function body with `body()`:
+Set the function body with `Body()`:
 
 ```js
-f.body([
+f.Body([
   ['local.get', 0],
   ['local.get', 1],
   ['i32.add'],
@@ -152,7 +151,7 @@ The body must end with:
 ['end']
 ```
 
-`body()` can only be called once.
+`Body()` can only be called once.
 
 The call returns the function builder, so calls can be chained.
 
@@ -160,33 +159,13 @@ Exporting a function,
 export from the function builder:
 
 ```js
-f.exportAs("add");
+f.ExportAs("add");
 ```
 
 The exported function can then be called from **JavaScript** :
 
 ```js
 instance.exports.add(2, 3);
-```
-
-##### Function start
-Mark a function as the module start function:
-
-```js
-f.start();
-```
-
-The start function must have this type:
-
-```text
-[] -> []
-```
-
-The module can have one start function,
-the module builder can also set the start function directly:
-
-```js
-mb.addStart(funcRef);
 ```
 
 ##### WebAssembly value types
@@ -261,7 +240,7 @@ Use BigInt for i64 constants.
 For globals:
 
 ```js
-mb.addGlobal('i64', 0n, true);
+mb.AddGlobal('i64', 0n, true);
 ```
 
 Numeric i64 literals are accepted and converted with `BigInt`; prefer
@@ -481,7 +460,7 @@ Local access can use an index or a registered local name.
 ##### Global instructions
 
 Global access can use an index imported globals can also be referenced
-by their import field name. Defined globals created with `addGlobal()`
+by their import field name. Defined globals created with `AddGlobal()`
 cannot be named. The same applies to defined tables, memories, and tags
 (only imports carry names).
 
@@ -545,19 +524,19 @@ The callee is taken from the top of the stack.
 Create memory with an initial page count:
 
 ```js
-const mi = mb.addMemory(1);
+const mi = mb.AddMemory(1);
 ```
 
 Create memory with a maximum:
 
 ```js
-const mi = mb.addMemory(1, 2);
+const mi = mb.AddMemory(1, 2);
 ```
 
 Use a descriptor:
 
 ```js
-const mi = mb.addMemory({
+const mi = mb.AddMemory({
   initial: 1,
   maximum: 2
 });
@@ -568,7 +547,7 @@ const mi = mb.addMemory({
 Create shared memory:
 
 ```js
-const mi = mb.addMemory({
+const mi = mb.AddMemory({
   initial: 1,
   shared: true
 });
@@ -581,7 +560,7 @@ Shared memory is required for atomic instructions.
 Create memory64:
 
 ```js
-const mi = mb.addMemory({
+const mi = mb.AddMemory({
   initial: 1,
   addressType: 'i64'
 });
@@ -730,13 +709,13 @@ Drop a data segment:
 Create a funcref table:
 
 ```js
-const ti = mb.addTable('funcref', 1, 2);
+const ti = mb.AddTable('funcref', 1, 2);
 ```
 
 Descriptor form:
 
 ```js
-const ti = mb.addTable({
+const ti = mb.AddTable({
   element: 'funcref',
   initial: 1,
   maximum: 2
@@ -746,7 +725,7 @@ const ti = mb.addTable({
 Externref table:
 
 ```js
-const ti = mb.addTable({
+const ti = mb.AddTable({
   element: 'externref',
   initial: 1
 });
@@ -818,7 +797,7 @@ Drop:
 Import a function:
 
 ```js
-const i = mb.addImport(
+const i = mb.AddImport(
   'env',
   'log',
   {
@@ -834,7 +813,7 @@ const i = mb.addImport(
 so `func` is also accepted:
 
 ```js
-const i = mb.addImport(
+const i = mb.AddImport(
   'env',
   'log',
   {
@@ -850,7 +829,7 @@ const i = mb.addImport(
 An alternate form is:
 
 ```js
-const i = mb.addImport(
+const i = mb.AddImport(
   'env',
   'log',
   'function',
@@ -864,7 +843,7 @@ const i = mb.addImport(
 #### Table imports
 
 ```js
-mb.addImport(
+mb.AddImport(
   'env',
   'tbl',
   {
@@ -878,7 +857,7 @@ mb.addImport(
 #### Memory imports
 
 ```js
-mb.addImport(
+mb.AddImport(
   'env',
   'mem',
   {
@@ -892,7 +871,7 @@ mb.addImport(
 Shared memory:
 
 ```js
-mb.addImport(
+mb.AddImport(
   'env',
   'mem',
   {
@@ -906,7 +885,7 @@ mb.addImport(
 #### Global imports
 
 ```js
-mb.addImport(
+mb.AddImport(
   'env',
   'g',
   {
@@ -920,7 +899,7 @@ mb.addImport(
 #### Tag imports
 
 ```js
-mb.addImport(
+mb.AddImport(
   'env',
   'tag',
   {
@@ -956,25 +935,25 @@ Defined functions follow the imported functions.
 Export from the function builder:
 
 ```js
-f.exportAs("name");
+f.ExportAs("name");
 ```
 
 Export by function name:
 
 ```js
-mb.exportFunction("funcName", "exportName");
+mb.ExportFunction("funcName", "exportName");
 ```
 
 Export by builder:
 
 ```js
-mb.exportFunction(f, "exportName");
+mb.ExportFunction(f, "exportName");
 ```
 
 Export by index:
 
 ```js
-mb.exportFunction(3, "exportName");
+mb.ExportFunction(3, "exportName");
 ```
 
 #### Other exports
@@ -982,25 +961,25 @@ mb.exportFunction(3, "exportName");
 Table:
 
 ```js
-mb.exportTable(0, "tbl");
+mb.ExportTable(0, "tbl");
 ```
 
 Memory:
 
 ```js
-mb.exportMemory(0, "mem");
+mb.ExportMemory(0, "mem");
 ```
 
 Global:
 
 ```js
-mb.exportGlobal(0, "g");
+mb.ExportGlobal(0, "g");
 ```
 
 Tag:
 
 ```js
-mb.exportTag(0, "tag");
+mb.ExportTag(0, "tag");
 ```
 
 #### Creating globals
@@ -1008,31 +987,31 @@ mb.exportTag(0, "tag");
 Immutable i32:
 
 ```js
-const gi = mb.addGlobal('i32', 0);
+const gi = mb.AddGlobal('i32', 0);
 ```
 
 Mutable i32:
 
 ```js
-const gi = mb.addGlobal('i32', 5, true);
+const gi = mb.AddGlobal('i32', 5, true);
 ```
 
 Mutable i64:
 
 ```js
-const gi = mb.addGlobal('i64', 0n, true);
+const gi = mb.AddGlobal('i64', 0n, true);
 ```
 
 funcref:
 
 ```js
-const gi = mb.addGlobal('funcref', null);
+const gi = mb.AddGlobal('funcref', null);
 ```
 
 f64:
 
 ```js
-const gi = mb.addGlobal('f64', 1.5);
+const gi = mb.AddGlobal('f64', 1.5);
 ```
 
 #### Global initializers
@@ -1075,7 +1054,7 @@ An instruction list can be used for a constant initializer:
 Create a struct:
 
 ```js
-const t = mb.addType({
+const t = mb.AddType({
   kind: 'struct',
   fields: ['i32', 'f64']
 });
@@ -1084,7 +1063,7 @@ const t = mb.addType({
 A field can include mutability:
 
 ```js
-const t = mb.addType({
+const t = mb.AddType({
   kind: 'struct',
   fields: [
     {type: 'i32', mutable: true},
@@ -1100,7 +1079,7 @@ A string field is immutable shorthand.
 Create an immutable element array:
 
 ```js
-const t = mb.addType({
+const t = mb.AddType({
   kind: 'array',
   element: 'i32'
 });
@@ -1109,7 +1088,7 @@ const t = mb.addType({
 Create a mutable element array:
 
 ```js
-const t = mb.addType({
+const t = mb.AddType({
   kind: 'array',
   element: {
     type: 'i32',
@@ -1127,13 +1106,13 @@ The base type must not be final.
 Example:
 
 ```js
-const base = mb.addType({
+const base = mb.AddType({
   kind: 'struct',
   fields: ['i32'],
   final: false
 });
 
-const sub = mb.addType({
+const sub = mb.AddType({
   kind: 'struct',
   fields: ['i32', 'i64'],
   supertype: base
@@ -1753,7 +1732,7 @@ The encoder also checks natural alignment for atomic operations.
 Create a tag from a signature:
 
 ```js
-const tag = mb.addTag({
+const tag = mb.AddTag({
   params: ['i32'],
   results: []
 });
@@ -1762,7 +1741,7 @@ const tag = mb.addTag({
 An existing type index can also be reused:
 
 ```js
-const tag = mb.addTag(t);
+const tag = mb.AddTag(t);
 ```
 
 #### Throw
@@ -1885,7 +1864,7 @@ is left to the WebAssembly engine.
 Create an active data segment:
 
 ```js
-mb.addDataSegment({
+mb.AddDataSegment({
   offset: 0,
   data: [1, 2, 3, 4]
 });
@@ -1894,7 +1873,7 @@ mb.addDataSegment({
 A `Uint8Array` can also be used:
 
 ```js
-mb.addDataSegment({
+mb.AddDataSegment({
   offset: 0,
   data: new Uint8Array([1, 2, 3, 4])
 });
@@ -1905,7 +1884,7 @@ mb.addDataSegment({
 Create a passive segment:
 
 ```js
-mb.addDataSegment({
+mb.AddDataSegment({
   passive: true,
   data: [9, 9]
 });
@@ -1916,7 +1895,7 @@ mb.addDataSegment({
 The shorthand form is:
 
 ```js
-mb.addDataSegment(0, [1, 2, 3, 4]);
+mb.AddDataSegment(0, [1, 2, 3, 4]);
 ```
 
 #### Element segments
@@ -1924,7 +1903,7 @@ mb.addDataSegment(0, [1, 2, 3, 4]);
 Active element segment:
 
 ```js
-mb.addElemSegment({
+mb.AddElemSegment({
   table: 0,
   offset: 0,
   indices: [funcIndex]
@@ -1934,7 +1913,7 @@ mb.addElemSegment({
 Passive element segment:
 
 ```js
-mb.addElemSegment({
+mb.AddElemSegment({
   passive: true,
   indices: [0, 1]
 });
@@ -1943,7 +1922,7 @@ mb.addElemSegment({
 Declared element segment:
 
 ```js
-mb.addElemSegment({
+mb.AddElemSegment({
   declared: true,
   indices: [0]
 });
@@ -1954,7 +1933,7 @@ mb.addElemSegment({
 Active expression segment:
 
 ```js
-mb.addElemSegment({
+mb.AddElemSegment({
   table: 0,
   offset: 0,
   exprs: [['ref.func', 0]],
@@ -1965,31 +1944,19 @@ mb.addElemSegment({
 Passive expression segment:
 
 ```js
-mb.addElemSegment({
+mb.AddElemSegment({
   passive: true,
   exprs: [['ref.null', 'func']],
   element: 'funcref'
 });
 ```
 
-#### Start function
-
-Set the start function:
-
-```js
-mb.addStart(funcRef);
-```
-
-The reference can be an index or name.
-
-The function must satisfy the required start function type.
-
 #### Encoding
 
 Encode the module:
 
 ```js
-const bytes = mb.encode(); 
+const bytes = mb.Encode(); 
 ```
 
 The result is a Uint8Array containing the WebAssembly module bytes.
@@ -1997,8 +1964,8 @@ The result is a Uint8Array containing the WebAssembly module bytes.
 Compile and instantiate with the host engine:
 
 ```js
-const module = mb.compile();
-const instance = mb.instantiate({ imports });
+const module = mb.Compile();
+const instance = mb.Instantiate({ imports });
 ```
 
 
@@ -2007,7 +1974,7 @@ const instance = mb.instantiate({ imports });
 Get the module bytes as a lowercase hexadecimal string:
 
 ```js
-const hex = mb.hex();
+const hex = mb.Hex();
 ```
 
 #### Module summary
@@ -2015,7 +1982,7 @@ const hex = mb.hex();
 Get a summary:
 
 ```js
-const sum = mb.summary();
+const sum = mb.Summary();
 ```
 
 The summary contains counts for:
@@ -2048,7 +2015,7 @@ const mb = new WasmModuleBuilder();
  * Function type:
  * () -> i32
  */
-const type = mb.addType({
+const type = mb.AddType({
     params: [],
     results: ['i32']
 });
@@ -2056,9 +2023,9 @@ const type = mb.addType({
 /*
  * Function that returns 0x1337.
  */
-const target = mb.addFunction("target", type);
+const target = mb.AddFunction("target", type);
 
-target.body([
+target.Body([
     ['i32.const', 0x444444444]
 ]);
 
@@ -2068,12 +2035,12 @@ target.body([
  * index 0
  * index 1
  */
-const table = mb.addTable('funcref', 2, 2);
+const table = mb.AddTable('funcref', 2, 2);
 
 /*
  * Put target into table[0].
  */
-mb.addElemSegment({
+mb.AddElemSegment({
     table: table,
     offset: 0,
     indices: [target]
@@ -2082,12 +2049,12 @@ mb.addElemSegment({
 /*
  * Test function:
  */
-const run = mb.addFunction("run", {
+const run = mb.AddFunction("run", {
     params: [],
     results: ['i32']
 });
 
-run.body([
+run.Body([
 
     /*
      * table.set(table, index, ref)
@@ -2134,24 +2101,24 @@ run.body([
     ['call_indirect', type, table]
 ]);
 
-run.exportAs("run");
+run.ExportAs("run");
 
 
-print("summary();");
-print(JSON.stringify(mb.summary()));
+print("Summary();");
+print(JSON.stringify(mb.Summary()));
 
-print("hex();");
-const hex = mb.hex();
+print("Hex();");
+const hex = mb.Hex();
 print(hex);
 
-const wasmModule = new WebAssembly.Module(mb.encode());
+const wasmModule = new WebAssembly.Module(mb.Encode());
 const instance = new WebAssembly.Instance(wasmModule, {});
 
 print("Expected!");
 print(instance.exports.run());
 
 /*
-summary();
+Summary();
 {"types":1,
 "funcImports":0,
 "funcDefs":2,
@@ -2167,7 +2134,7 @@ summary();
 "datas":0,
 "exports":0}
 
-hex();
+Hex();
 0061736d010000000105016000017f0303020000040501700102020707010372756e00010907010041000b01000a2502070041c48891220b1b004101d2002600410125001a4100d2004102fc110041011100000b
 Expected!
 71582788
@@ -2179,7 +2146,7 @@ Expected!
 Compile encoded bytes with the WebAssembly JavaScript API:
 
 ```js
-const module = new WebAssembly.Module(mb.encode());
+const module = new WebAssembly.Module(mb.Encode());
 ```
 
 #### Instantiating a module
@@ -2197,7 +2164,7 @@ For a module without imports:
 
 ```js
 const instance = new WebAssembly.Instance(
-  new WebAssembly.Module(mb.encode()),
+  new WebAssembly.Module(mb.Encode()),
   {}
 );
 ```
@@ -2212,31 +2179,49 @@ const result = instance.exports.someFunc(...);
 
 #### Builder errors
 
-Invalid builder input throws `WasmBuilderError`.
+Validation has one face: **StackCheck**.
 
-Examples include:
+Invalid builder input is rejected by the stack checker before the module
+ever reaches the engine, and it reports like this:
+
+```text
+@StackCheck: function "bad": TypeError: expected type i32, got f64.
+
+@Stack:
+  test.js:23      ["end"]
+```
+
+Examples the checker rejects:
 
 ```text
 duplicate names
 out-of-range indexes
 invalid memory alignment
 stack type mismatch
+wrong argument counts
+invalid limits
 other invalid builder input
 ```
 
-#### Builder validation
-
-The builder performs its own validation when encoding.
-This includes a stack "type checker".
+There is no second validation category. `InternalError` exists only as a
+bug detector: it shows `*** WB: An error occurred!` when the builder itself
+failed to validate something it should have caught.
 
 #### Builder and engine are separate
 
-So this *graph* simulate the test path:
+Engine errors are never wrapped. `Compile()` and `Instantiate()` call the
+engine directly, so if the engine rejects a module its own error surfaces
+raw, with its own message and stack. If a module passes the stack checker
+and the engine still rejects it, that means there is a bug in the builder
+or in the engine.
+
+So this *graph* simulates the test path:
 ```text 
 Testcase:
 └─ ModuleBuilder.js
   └─ Builds WebAssembly Module Definition
-  └─ mb.encode()
+  └─ mb.Encode()
+    └─ StackChecker rejects bad modules before the engine
     └─ Encodes Module Definition Into WebAssembly bytecode 
       └─ WebAssembly.Module
         └─ SpiderMonkey Validates WebAssembly bytecode 
@@ -2269,20 +2254,20 @@ const mb = new WasmModuleBuilder();
 Add memory:
 
 ```js
-mb.addMemory({initial: 1});
-mb.exportMemory(0, "memory");
+mb.AddMemory({initial: 1});
+mb.ExportMemory(0, "memory");
 ```
 
 Add a mutable global:
 
 ```js
-mb.addGlobal('i32', 10, true);
+mb.AddGlobal('i32', 10, true);
 ```
 
 Create an imported function type:
 
 ```js
-const logType = mb.addType({
+const logType = mb.AddType({
   params: ['i32'],
   results: []
 });
@@ -2291,7 +2276,7 @@ const logType = mb.addType({
 Add the import:
 
 ```js
-mb.addImport(
+mb.AddImport(
   'env',
   'log',
   {
@@ -2304,7 +2289,7 @@ mb.addImport(
 Create the function:
 
 ```js
-const f = mb.addFunction("bump", {
+const f = mb.AddFunction("bump", {
   params: [],
   results: ['i32']
 });
@@ -2313,7 +2298,7 @@ const f = mb.addFunction("bump", {
 Set its body:
 
 ```js
-f.body([
+f.Body([
   ['global.get', 0],
 
   ['i32.const', 1],
@@ -2334,14 +2319,14 @@ f.body([
 Export it:
 
 ```js
-f.exportAs("bump");
+f.ExportAs("bump");
 ```
 
 Create the instance:
 
 ```js
 const instance = new WebAssembly.Instance(
-  new WebAssembly.Module(mb.encode()),
+  new WebAssembly.Module(mb.Encode()),
   {
     env: {
       log: function (x) {
