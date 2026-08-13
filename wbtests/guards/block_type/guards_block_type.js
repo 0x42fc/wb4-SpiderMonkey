@@ -1,4 +1,4 @@
-load("test/mjsunit/wasm/WasmBuilder.js");
+load("wbunit/wasm/WasmBuilder.js");
 
 const mb = new WasmModuleBuilder();
 const bt = mb.addType({ params: ['i32'], results: ['i32'] });
