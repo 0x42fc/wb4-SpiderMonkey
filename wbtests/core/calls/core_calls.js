@@ -1,4 +1,4 @@
-load("test/mjsunit/wasm/WasmBuilder.js");
+load("wbunit/wasm/WasmBuilder.js");
 
 // imported in JS shell or env.
 const mb = new WasmModuleBuilder();
