@@ -1,4 +1,4 @@
-load("test/mjsunit/wasm/WasmBuilder.js");
+load("wbunit/wasm/WasmBuilder.js");
 
 const tag = new WebAssembly.Tag({ parameters: ['i32'] });
 
