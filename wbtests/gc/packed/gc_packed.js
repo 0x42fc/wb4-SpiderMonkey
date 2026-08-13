@@ -1,4 +1,4 @@
-load("test/mjsunit/wasm/WasmBuilder.js");
+load("wbunit/wasm/WasmBuilder.js");
 
 const mb = new WasmModuleBuilder();
 const st = mb.addType({ kind: 'struct', fields: ['i8'] });
