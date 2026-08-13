@@ -1200,7 +1200,7 @@
     WriteString(s) {
       let enc;
       if (typeof TextEncoder !== 'undefined') {
-        enc = new TextEncoder().Encode(String(s));
+        enc = new TextEncoder().encode(String(s));
       } else {
         const u = unescape(encodeURIComponent(String(s)));
         enc = new Uint8Array(u.length);
@@ -1383,7 +1383,7 @@
         ? new TextEncoder()
         : null;
       if (enc) {
-        return enc.Encode(data);
+        return enc.encode(data);
       }
       const u = unescape(encodeURIComponent(data));
       const out = new Uint8Array(u.length);
