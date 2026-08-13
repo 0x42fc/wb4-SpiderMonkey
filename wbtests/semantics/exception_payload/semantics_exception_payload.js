@@ -1,4 +1,4 @@
-load("test/mjsunit/wasm/WasmBuilder.js");
+load("wbunit/wasm/WasmBuilder.js");
 
 const mb = new WasmModuleBuilder();
 mb.addTag({ params: ['i32', 'i64'], results: [] });
