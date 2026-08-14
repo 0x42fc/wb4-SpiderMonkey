@@ -13,10 +13,9 @@
     return e;
   }
 
-  // Error categories.
-  // Validation has one face, the CompilationChecker.
-  // 'internal' is a bug detector, not a validation category. 
-  //  if it ever shows up, something is wrong inside the builder itself.
+  /* --- error categories --- */
+  /* --- compilation failed means validation error --- */
+  /* --- internal means builder bug --- */
   const CATEGORY = {
     'compilation-failed': 'CompilationFailed',
     'internal': 'InternalError',
@@ -35,28 +34,26 @@
         if (options.instructionIndex !== undefined) this.instructionIndex = options.instructionIndex;
         if (options.instructionOccurrence !== undefined) this.instructionOccurrence = options.instructionOccurrence;
       }
-      // Keep the full trace. The default report filters it out.
+      /* --- keep full stack trace --- */
       this.internalStack = this.stack;
     }
   }
 
   function assert(cond, msg) {
     if (!cond) {
-      // Every validation failure is a stackcheck finding, the builder
-      // rejected the module before the host JS engine ever sees it.
+      /* --- validation failure stops here --- */
       throw new CompilationFailed(msg, { code: 'compilation-failed' });
     }
   }
 
-  // Strict bounds checking, a bad index is a validation failure
-  // and is reported as CompilationFailed, never as an internal error obviously.
+  /* --- bad index is validation error --- */
   class CHECK_EQ extends CompilationFailed {
     constructor(msg) {
       super(msg, { code: 'compilation-failed' });
     }
   }
 
-  // Text form of an argument for expected/got messages.
+  /* --- turn value into text for error messages --- */
   function Inspect_(v) {
     if (v === null) return 'null';
     if (v === undefined) return 'undefined';
@@ -67,10 +64,9 @@
     return String(v);
   }
 
-  // Runs a public builder call. User errors (CompilationFailed) are
-  // recorded on the module and the fallback value is returned, so a bad
-  // testcase never dies mid-build; Encode() reports the first recorded
-  // error. Real builder bugs still propagate.
+  /* --- run public builder call safely --- */
+  /* --- user errors are recorded not thrown --- */
+  /* --- builder bugs still propagate --- */
   function GuardPublic_(module, fn, fallback) {
     try {
       return fn();
@@ -83,10 +79,8 @@
     }
   }
 
-  // Parses one stack trace line into { file, line, col, fn } when it
-  // carries a location, else null. Handles the SpiderMonkey shell and
-  // Firefox browser format (fn@file:line:col or file:line:col). fn is
-  // null for frames without a function name.
+  /* --- read one stack line into file line col fn --- */
+  /* --- supports fn@file:line:col and file:line:col --- */
   function FrameLocation_(loc) {
     const s = String(loc).trim();
     if (s.length === 0) return null;
@@ -104,11 +98,7 @@
     return null;
   }
 
-  // True when the frame belongs to this builder's own code. The file
-  // name filter covers the normal case (WasmBuilder.js loaded as its own
-  // file); the `BUILDER_LOC_ line` boundary covers the browser case where
-  // the builder is pasted inline and every frame names the page file
-  // the function name filter covers stragglers in either layout.
+  /* --- check if frame is inside builder code --- */
   function IsInternalFrame_(fr) {
     if (!fr) return false;
     if (fr.file && String(fr.file).indexOf('WasmBuilder.js') >= 0) return true;
@@ -119,7 +109,7 @@
     return name === 'FirstTestFrame_';
   }
 
-  // First stack frame that is not inside this builder.
+  /* --- first stack frame outside builder --- */
   function FirstTestFrame_(stack) {
     for (const line of String(stack).split('\n')) {
       const loc = line.trim();
@@ -130,7 +120,7 @@
     return null;
   }
 
-  // Text form of an instruction used to match source lines.
+  /* --- text form of one instruction --- */
   function InstrKey_(instr) {
     let s;
     if (Array.isArray(instr)) {
@@ -148,7 +138,7 @@
     return s.replace(/["']/g, '').replace(/\s+/g, '');
   }
 
-  // How many earlier instructions look identical to the given one.
+  /* --- count earlier same looking instructions --- */
   function CountPriorIdentical_(instrs, index, instr) {
     const key = InstrKey_(instr);
     let n = 0;
@@ -158,10 +148,7 @@
     return n;
   }
 
-  // Makes a stack frame path relative to the current directory. The shell
-  // stores loaded files with absolute paths; the builder's own location
-  // shares the cwd prefix, so the common prefix is stripped. Paths that
-  // are already relative are returned unchanged.
+  /* --- make path relative to current folder --- */
   function RelativePath_(p) {
     const s = String(p).replace(/\\/g, '/');
     const base = (BUILDER_LOC_ && BUILDER_LOC_.file) ?
@@ -174,9 +161,15 @@
     return (i === 0) ? s : a.slice(i).join('/');
   }
 
-  // Prints one report line to the host (print in the shell, console in
-  // the browser).
+  /* --- print one report line --- */
+  /* --- use console in browser and print in shell --- */
   function Print_(s) {
+    if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {
+      if (typeof console !== 'undefined' && typeof console.log === 'function') {
+        console.log(s);
+      }
+      return;
+    }
     if (typeof print === 'function') {
       print(s);
       return;
@@ -186,20 +179,14 @@
     }
   }
 
-  // Stops the script after a reported compilation failure so nothing
-  // misleading runs after the failed build. The shell exits cleanly (the
-  // report already printed); in the browser there is no quit(), so the
-  // caller simply receives undefined.
+  /* --- stop script after failure --- */
   function StopAfterFailure_() {
     if (typeof quit === 'function') {
       quit(0);
     }
   }
 
-  // Prints the clean report for a rejected module. Called by Encode()
-  // when a compilation failure is detected; the build then stops and
-  // returns undefined, so the host never sees an uncaught exception with
-  // the builder's internal stack.
+  /* --- print clean report for rejected module --- */
   function ReportCompilationFailed_(e) {
     const name = (e && e.name) ? String(e.name) : 'CompilationFailed';
     const message = (e && e.message !== undefined) ? String(e.message) : String(e);
@@ -209,11 +196,10 @@
     for (const line of String(raw).split('\n')) {
       const loc = line.trim();
       if (loc.length === 0) continue;
-      // First frame outside the builder: the test site, relative to cwd.
       const fr = FrameLocation_(loc);
       if (!fr || IsInternalFrame_(fr)) continue;
       frames.push(RelativePath_(fr.file) + ':' + fr.line + ':' + fr.col);
-      break;                           // only that one frame.
+      break;
     }
     if (frames.length > 0) {
       out += '\n\n@Stack:\n' + frames.join('\n');
@@ -221,7 +207,7 @@
     Print_(out);
   }
 
-  // Sec ids.
+  /* --- section ids --- */
   const SECT = {
     CUSTOM: 0,
     TYPE: 1,
@@ -239,7 +225,7 @@
     TAG: 13,
   };
 
-  // External kind bytes.
+  /* --- external kind bytes --- */
   const KIND = {
     FUNCTION: 0x00,
     TABLE: 0x01,
@@ -248,7 +234,7 @@
     TAG: 0x04,
   };
 
-  // Value types.
+  /* --- value types --- */
   const TYPE = {
     i32: 0x7f,
     i64: 0x7e,
@@ -267,20 +253,18 @@
     nullexternref: 0x72,
     nullanyref: 0x71,
     nullexnref: 0x74,
-    // Packed field types,
-    // only valid inside struct or array fields.
+    /* --- packed field types --- */
+    /* --- only valid inside struct or array fields --- */
     i8: 0x78,
     i16: 0x77,
   };
 
-  // i8 and i16 fields are bytes
-  // but act as i32 on the stack.
+  /* --- i8 and i16 fields act as i32 on stack --- */
   function FieldStackType(t) {
     return (t === 'i8' || t === 'i16') ? 'i32' : t;
   }
 
-  // Heap types
-  // for ref.null and typed refs.
+  /* --- heap types for ref null and typed refs --- */
   const HEAP = {
     func: 0x70,
     extern: 0x6f,
@@ -301,17 +285,17 @@
   HEAP.arrayref = HEAP.array;
   HEAP.exnref = HEAP.exn;
 
-  const BLOCK_VOID = 0x40;   // empty block type
-  const FUNC_FORM = 0x60;    // function type form
-  const STRUCT_FORM = 0x5f;  // struct type form
-  const ARRAY_FORM = 0x5e;   // array type form
-  const REC_GROUP = 0x4e;    // rec group prefix
-  const SUB_NO_FINAL = 0x50; // sub prefix, not final
-  const SUB_FINAL = 0x4f;    // sub final prefix
-  const REF_NULLABLE = 0x63; // nullable ref form
-  const REF_NONNULL = 0x64;  // non null ref form
+  const BLOCK_VOID = 0x40;
+  const FUNC_FORM = 0x60;
+  const STRUCT_FORM = 0x5f;
+  const ARRAY_FORM = 0x5e;
+  const REC_GROUP = 0x4e;
+  const SUB_NO_FINAL = 0x50;
+  const SUB_FINAL = 0x4f;
+  const REF_NULLABLE = 0x63;
+  const REF_NONNULL = 0x64;
 
-  // Core opcodes.
+  /* --- core opcodes --- */
   const OP = {
     Unreachable: 0x00,
     Nop: 0x01,
@@ -390,7 +374,7 @@
     ThreadPrefix: 0xfe,
   };
 
-  // Single byte numeric ops.
+  /* --- single byte numeric ops --- */
   const UNARY_BYTE = {
     'i32.eqz': 0x45,
     'i32.eq': 0x46,
@@ -522,7 +506,7 @@
     'i64.extend32_s': 0xc4,
   };
 
-  // Misc prefix ops, after 0xfc.
+  /* --- misc prefix ops after 0xfc --- */
   const MISC = {
     'i32.trunc_sat_f32_s': 0x00,
     'i32.trunc_sat_f32_u': 0x01,
@@ -545,8 +529,7 @@
     'memory.discard': 0x12,
   };
 
-  // Load and store ops,
-  // opcode and byte size.
+  /* --- load and store ops with size --- */
   const LOAD_STORE = {
     'i32.load': { op: 0x28, size: 4 },
     'i64.load': { op: 0x29, size: 8 },
@@ -573,7 +556,7 @@
     'i64.store32': { op: 0x3e, size: 4 },
   };
 
-  // Thread prefix ops, after 0xfe.
+  /* --- thread prefix ops after 0xfe --- */
   const THREAD_LOAD = {
     'i32.atomic.load': 0x10,
     'i64.atomic.load': 0x11,
@@ -594,7 +577,7 @@
     'i64.atomic.store32_u': 0x1d,
   };
 
-  // The opcode is the base plus the width variant 0..6.
+  /* --- rmw base opcode plus width variant --- */
   const THREAD_RMW = [
     { name: 'add', base: 0x1e },
     { name: 'sub', base: 0x25 },
@@ -625,30 +608,13 @@
     'i64_32u': 4,
   };
 
-  // SIMD ops after the 0xfd prefix. Each entry is an opcode and a shape
-  // that tells the encoder how to write immediates and the checker how to
-  // type the operands,
-  //
-  //   L    load: pop addr, push v128
-  //   S    store: pop addr, pop v128
-  //   LL   lane load: pop addr, pop v128, push v128
-  //   LS   lane store: pop addr, pop v128
-  //   C    v128.const, 16 bytes
-  //   SH   shuffle, 16 lane indices
-  //   SW   swizzle, two v128 to v128
-  //   SP   splat, scalar to v128
-  //   EX   extract lane, v128 to scalar
-  //   RP   replace lane, v128 and scalar to v128
-  //   CMP  comparison, two v128 to v128
-  //   UN   unary, v128 to v128
-  //   BI   binary, two v128 to v128
-  //   TER  bitselect, three v128 to v128
-  //   AT   all_true or any_true, v128 to i32
-  //   BM   bitmask, v128 to i32
-  //   SHF  shift, v128 and i32 to v128
-  //
-
-
+  /* --- simd ops after 0xfd prefix --- */
+  /* --- shape tells encoder and checker how to handle each op --- */
+  /* --- shapes: L load S store LL lane load LS lane store --- */
+  /* --- C const SH shuffle SW swizzle SP splat --- */
+  /* --- EX extract RP replace CMP compare UN unary --- */
+  /* --- BI binary TER bitselect AT any all true --- */
+  /* --- BM bitmask SHF shift --- */
   const SIMD = {
     'v128.load': [0x00, 'L', 16],
     'v128.load8x8_s': [0x01, 'L', 8],
@@ -888,30 +854,8 @@
     'f64x2.convert_low_i32x4_u': [0xff, 'UN'],
   };
 
-  // GC ops after the 0xfb prefix. Each shape tells the stack effect:
-  //   snew       struct.new: pop fields, push ref
-  //   snewdef    struct.new_default: push ref
-  //   sget       struct.get: pop ref, push field type
-  //   sget_su    struct.get_s/u: pop ref, push i32
-  //   sset       struct.set: pop ref, pop value
-  //   anew       array.new: pop init, pop len, push ref
-  //   anewdef    array.new_default: pop len, push ref
-  //   anewfixed  array.new_fixed: pop n values, push ref
-  //   anewseg    array.new_data/elem: pop offset, pop len, push ref
-  //   aget       array.get: pop ref, pop index, push element type
-  //   aget_su    array.get_s/u: pop ref, pop index, push i32
-  //   aset       array.set: pop ref, pop index, pop value
-  //   alen       array.len: pop ref, push i32
-  //   afill      array.fill: pop ref, pop index, pop value, pop len
-  //   acopy      array.copy: pop dst ref, dst idx, src ref, src idx, len
-  //   aseginit   array.init_data/elem: pop ref, index, offset, len
-  //   rtest      ref.test/test_null: pop ref, push i32
-  //   rcast      ref.cast/cast_null: pop ref, push ref
-  //   rbrancast  br_on_cast / br_on_cast_fail: depth + two ref types
-  //   rconvert   any/extern convert: pop one ref, push the other
-  //   ri31       ref.i31: pop i32, push i31 ref
-  //   i31get     i31.get_s/u: pop i31 ref, push i32
-  
+  /* --- gc ops after 0xfb prefix --- */
+  /* --- shape tells stack effect --- */
   const GC = {
     'struct.new': [0x00, 'snew'],
     'struct.new_default': [0x01, 'snewdef'],
@@ -947,7 +891,7 @@
     'i31.get_u': [0x1e, 'i31get'],
   };
 
-  // Operand and result types of the numeric conversions.
+  /* --- operand and result types for conversions --- */
   const CONV = {
     'i32.wrap_i64': ['i64', 'i32'],
     'i32.trunc_f32_s': ['f32', 'i32'],
@@ -989,7 +933,7 @@
     'i64.extend32_s': ['i64', 'i64'],
   };
 
-  // Byte writer with LEB128 primitives.
+  /* --- byte writer with leb128 --- */
   const f32View = new DataView(new ArrayBuffer(4));
   const f64View = new DataView(new ArrayBuffer(8));
 
@@ -1013,7 +957,7 @@
       return this;
     }
 
-    // Unsigned LEB128. Takes a number in uint32 range or a BigInt.
+    /* --- unsigned leb128 for up to 32 bits --- */
     WriteU32LEB(v) {
       assert((typeof v === 'bigint') ||
         (Number.isInteger(v) && v >= 0), 'WriteU32LEB: bad value ' + v);
@@ -1031,7 +975,7 @@
       return this;
     }
 
-    // Unsigned LEB128 without the 32 bit limit, for memory and table limits.
+    /* --- unsigned leb128 without 32 bit limit --- */
     WriteU64LEB(v) {
       assert((typeof v === 'bigint') ||
         (Number.isInteger(v) && v >= 0), 'WriteU64LEB: bad value ' + v);
@@ -1048,7 +992,7 @@
       return this;
     }
 
-    // Signed LEB128 for a 32 bit value.
+    /* --- signed leb128 for 32 bit value --- */
     WriteS32LEB(v) {
       assert(Number.isInteger(v), 'WriteS32LEB: not an integer: ' + v);
       assert(v >= -0x80000000 && v <= 0x7fffffff,
@@ -1069,10 +1013,9 @@
       return this;
     }
 
-    // Signed LEB128 for a 64 bit value. Takes a number or a BigInt.
+    /* --- signed leb128 for 64 bit value --- */
     WriteS64LEB(v) {
       let big = (typeof v === 'bigint') ? v : BigInt(v);
-      // i64.const holds a signed 64 bit value. Reject the rest.
       assert(big >= -(1n << 63n) && big <= (1n << 63n) - 1n,
         'i64 value out of signed range: ' + v);
       let more = true;
@@ -1127,7 +1070,7 @@
       return this;
     }
 
-    // Writes section id, size and content.
+    /* --- write section id size and content --- */
     WriteSection(id, contentWriter) {
       const tmp = new Writer();
       contentWriter(tmp);
@@ -1137,7 +1080,7 @@
       return this;
     }
 
-    // Writes a value type: a name, a raw byte, or a typed ref descriptor.
+    /* --- write value type name byte or typed ref --- */
     WriteValueType(t) {
       if (typeof t === 'number') {
         this.WriteU8(t);
@@ -1150,7 +1093,6 @@
         return this;
       }
       if (typeof t === 'object' && t !== null && t.ref !== undefined) {
-        // Typed ref: 0x63 nullable, 0x64 non null, then the heap type.
         this.WriteU8(t.nullable === false ? REF_NONNULL : REF_NULLABLE);
         this.WriteHeapType(t.ref);
         return this;
@@ -1158,12 +1100,11 @@
       throw new CompilationFailed('cannot encode value type: ' + JSON.stringify(t));
     }
 
-    // Writes a heap type: a type index or an abstract heap type name.
+    /* --- write heap type index or abstract name --- */
     WriteHeapType(ht) {
       if (typeof ht === 'number') {
         assert(Number.isInteger(ht) && ht >= 0,
           'heap type index must be >= 0');
-        // Heap type indices are signed LEB128 in the binary format.
         this.WriteS32LEB(ht);
         return this;
       }
@@ -1178,14 +1119,13 @@
                       (ht === 'exnref') ? 'exn' : ht;
         assert(Object.prototype.hasOwnProperty.call(HEAP, normalized),
           'unknown heap type "' + ht + '"');
-        // Abstract heap types are one byte each, like funcref 0x70.
         this.WriteU8(HEAP[normalized]);
         return this;
       }
       throw new CompilationFailed('cannot encode heap type: ' + JSON.stringify(ht));
     }
 
-    // Writes a block type: void, a value type, a type index, or a descriptor.
+    /* --- write block type void value type or index --- */
     WriteBlockType(bt, typeIndexForObject) {
       if (bt === null || bt === undefined) {
         this.WriteU8(BLOCK_VOID);
@@ -1198,7 +1138,6 @@
       if (typeof bt === 'number') {
         assert(Number.isInteger(bt) && bt >= 0,
           'block type index must be >= 0');
-        // Block type indices are signed LEB128 in the binary format.
         this.WriteS32LEB(bt);
         return this;
       }
@@ -1209,7 +1148,7 @@
       throw new CompilationFailed('cannot encode block type: ' + JSON.stringify(bt));
     }
 
-    // Writes a limits block: initial, maximum, shared, address type.
+    /* --- write limits block --- */
     WriteLimits(limits, forMemory) {
       let flags = 0;
       if (limits.maximum !== undefined && limits.maximum !== null) {
@@ -1223,7 +1162,6 @@
       if (is64) {
         flags |= 0x04;
       }
-      // 32 bit tables and memories are capped at 2^32-1 entries or pages.
       const validInt = (v) => (typeof v === 'bigint') || (Number.isInteger(v) && v >= 0);
       if (!is64 && validInt(limits.initial) && BigInt(limits.initial) > 0xffffffffn) {
         assert(false, 'limits: initial ' + limits.initial + ' exceeds 32 bit range');
@@ -1262,8 +1200,7 @@
     }
   }
 
-  // Helpers.
-  // Works even when the builder is loaded twice, since instanceof fails then.
+  /* --- helpers --- */
   function IsFunctionBuilder(v) {
     return v instanceof WasmFunctionBuilder ||
       (v !== null && typeof v === 'object' &&
@@ -1276,7 +1213,7 @@
       !IsFunctionBuilder(v);
   }
 
-  // Turns bytes, a string or an array, into a Uint8Array.
+  /* --- turn string or array into uint8array --- */
   function ToBytes(data) {
     if (data instanceof Uint8Array) {
       return data;
@@ -1305,12 +1242,12 @@
     return typeof t === 'string' &&
       (Object.prototype.hasOwnProperty.call(TYPE, t) &&
         TYPE[t] >= 0x60 && TYPE[t] <= 0x7a &&
-        t !== 'i8' && t !== 'i16') ||  // packed field types are not refs.
+        t !== 'i8' && t !== 'i16') ||
       (t === 'nullfuncref' || t === 'nullexternref' ||
         t === 'nullanyref' || t === 'nullexnref');
   }
 
-  // Lane count from the name, like i8x16 gives 16, or from the byte size.
+  /* --- lane count from op name --- */
   function SimdLaneCount(name, byteSize) {
     const m = /^v?[fi](\d+)x(\d+)/.exec(name);
     if (m) return Number(m[2]);
@@ -1318,7 +1255,7 @@
     return 0;
   }
 
-  // Checks an instruction has the right number of arguments.
+  /* --- check instruction argument count --- */
   function ExpectArgCount_(name, args, min, max) {
     const want = (min === max)
       ? min + ' argument' + (min === 1 ? '' : 's')
@@ -1327,7 +1264,7 @@
       name + ': expected ' + want + ', got ' + args.length);
   }
 
-  // Rejects any addressType other than i32 and i64.
+  /* --- only i32 and i64 address types allowed --- */
   function CheckAddressType_(desc, what) {
     assert(desc.addressType === undefined || desc.addressType === 'i32' ||
       desc.addressType === 'i64',
@@ -1355,6 +1292,7 @@
       return CountPriorIdentical_(this.instrs_, this.curIndex_, this.curInstr_);
     }
 
+    /* --- encode instruction list --- */
     Encode(instrs, ctx, options) {
       options = options || {};
       this.instrs_ = instrs;
@@ -1365,7 +1303,7 @@
       const w = new Writer();
       const control = [];
       for (let i = 0; i < initialDepth; i++) {
-        control.push('body');  // outermost frame
+        control.push('body');
       }
       let terminated = false;
 
@@ -1380,13 +1318,13 @@
         this.curInstr_ = instr;
         this.curIndex_ = i;
 
-        // Nothing may follow the outermost end.
+        /* --- nothing allowed after outermost end --- */
         if (terminated) {
           throw new CompilationFailed(
             'instruction appears after the outermost end');
         }
 
-        // Track control flow structure.
+        /* --- track control flow structure --- */
         switch (name) {
           case 'block':
           case 'loop':
@@ -1419,16 +1357,13 @@
             assert(control.length > initialDepth &&
               control[control.length - 1] === 'try',
               'delegate outside of a try block');
-            // Delegate targets a frame outside the try itself.
             assert(Number.isInteger(args[0]) && args[0] >= 0 &&
               args[0] < control.length - 1,
               'delegate depth ' + args[0] + ' out of range (nesting ' +
               (control.length - 1) + ')');
-            // Delegate ends the inner try, like 'end'.
             control.pop();
             break;
           case 'end':
-            // This end closes the outermost frame.
             if (control.length === initialDepth) {
               terminated = true;
             }
@@ -1451,7 +1386,6 @@
               depth < control.length,
               name + ' depth ' + depth + ' out of range (nesting ' +
               control.length + ')');
-            // Rethrow must target a catch handler, not an arbitrary label.
             const target = control[control.length - 1 - depth];
             assert(target === 'catch' || target === 'catch_all',
               name + ' depth ' + depth + ' does not target a catch block');
@@ -1491,7 +1425,7 @@
     }
 
     EncodeOne(name, args, ctx, w, controlDepth) {
-      // Control flow.
+      /* --- control flow --- */
       if (name === 'unreachable') {
         w.WriteU8(OP.Unreachable);
         return;
@@ -1519,7 +1453,6 @@
           const c = catches[i];
           assert(Array.isArray(c) && c.length >= 2,
             'try_table: malformed catch clause');
-          // c = [tagRef | "all", depth, captureExnRef?]
           const isAll = (c[0] === 'all' || c[0] === 'catch_all');
           const capture = c[2] === true;
           let flags = 0;
@@ -1538,7 +1471,6 @@
             }
             ww.WriteU32LEB(ctx.ResolveTag(c[0]));
           }
-          // Catch depths count frames outside the try_table itself.
           assert(Number.isInteger(c[1]) && c[1] >= 0 &&
             c[1] < controlDepth - 1,
             'try_table: catch depth ' + c[1] + ' exceeds nesting ' +
@@ -1571,7 +1503,6 @@
         w.WriteU8(OP.BrTable);
         const depths = args[0];
         assert(Array.isArray(depths), 'br_table: expected depths array');
-        // The binary format is a vector of target depths, then the default.
         w.WriteU32LEB(depths.length);
         for (const d of depths) {
           assert(Number.isInteger(d) && d >= 0, 'br_table: bad depth ' + d);
@@ -1587,7 +1518,7 @@
         return;
       }
 
-      // Exceptions.
+      /* --- exceptions --- */
       if (name === 'throw') {
         w.WriteU8(OP.Throw);
         if (typeof args[0] === 'number') {
@@ -1629,7 +1560,6 @@
       }
       if (name === 'select') {
         if (args.length > 0 && Array.isArray(args[0])) {
-          // Typed form: ["select", [types...]], same as select_t.
           w.WriteU8(OP.SelectTyped);
           const types = args[0];
           assert(Array.isArray(types) && types.length > 0, 'select: expected type list');
@@ -1647,7 +1577,7 @@
         return;
       }
 
-      // Locals.
+      /* --- locals --- */
       if (name === 'local.get') {
         ExpectArgCount_(name, args, 1, 1);
         if (typeof args[0] === 'number') {
@@ -1676,7 +1606,7 @@
         return;
       }
 
-      // Globals.
+      /* --- globals --- */
       if (name === 'global.get') {
         ExpectArgCount_(name, args, 1, 1);
         if (typeof args[0] === 'number') {
@@ -1696,7 +1626,7 @@
         return;
       }
 
-      // Constants.
+      /* --- constants --- */
       if (name === 'i32.const') {
         ExpectArgCount_(name, args, 1, 1);
         w.WriteU8(OP.I32Const);
@@ -1724,7 +1654,7 @@
         return;
       }
 
-      // Reference ops.
+      /* --- reference ops --- */
       if (name === 'ref.null') {
         ExpectArgCount_(name, args, 1, 1);
         if (typeof args[0] === 'number') {
@@ -1765,7 +1695,7 @@
         return;
       }
 
-      // Calls.
+      /* --- calls --- */
       if (name === 'call') {
         ExpectArgCount_(name, args, 1, 1);
         if (typeof args[0] === 'number') {
@@ -1825,7 +1755,7 @@
         return;
       }
 
-      // Memory load and store.
+      /* --- memory load and store --- */
       if (Object.prototype.hasOwnProperty.call(LOAD_STORE, name)) {
         ctx.RequireMemory();
         const info = LOAD_STORE[name];
@@ -1836,7 +1766,7 @@
         return;
       }
 
-      // Memory size and grow.
+      /* --- memory size and grow --- */
       if (name === 'memory.size') {
         ctx.RequireMemory();
         if (args.length > 0 && typeof args[0] === 'number') {
@@ -1856,7 +1786,7 @@
         return;
       }
 
-      // Misc prefix (0xfc).
+      /* --- misc prefix 0xfc --- */
       if (Object.prototype.hasOwnProperty.call(MISC, name)) {
         const op = MISC[name];
         w.WriteU8(OP.MiscPrefix);
@@ -1934,13 +1864,12 @@
             w.WriteU32LEB(ctx.ResolveTable(args[0]));
             break;
           default:
-            // Saturating truncations take no operands.
             break;
         }
         return;
       }
 
-      // Table get and set.
+      /* --- table get and set --- */
       if (name === 'table.get') {
         ctx.RequireTable();
         if (typeof args[0] === 'number') {
@@ -1960,7 +1889,7 @@
         return;
       }
 
-      // Atomics (0xfe).
+      /* --- atomics 0xfe --- */
       if (name === 'memory.atomic.notify') {
         ctx.RequireMemory();
         w.WriteU8(OP.ThreadPrefix);
@@ -2012,11 +1941,9 @@
           name.startsWith(i64prefix + '8') || name.startsWith(i64prefix + '16') ||
           name.startsWith(i64prefix + '32')) {
           ctx.RequireMemory();
-          // Determine which width variant this is.
           let variant = -1;
           for (let i = 0; i < THREAD_RMW_WIDTHS.length; i++) {
             const width = THREAD_RMW_WIDTHS[i];
-            // Canonical name from the width variant: i32_8u -> add8_u.
             let canonical;
             if (width === 'i32') {
               canonical = 'i32.atomic.' + rmw.name;
@@ -2025,7 +1952,6 @@
             } else {
               const bits = width.split('_')[0];
               const suffix = width.split('_')[1];
-              // i32_16u -> i32.atomic.add16_u
               canonical = bits + '.atomic.' + rmw.name +
                 suffix.slice(0, -1) + '_u';
             }
@@ -2035,7 +1961,7 @@
             }
           }
           if (variant < 0) {
-            continue;  // not an atomic rmw we handle
+            continue;
           }
           w.WriteU8(OP.ThreadPrefix);
           w.WriteU32LEB(rmw.base + variant);
@@ -2046,13 +1972,13 @@
         }
       }
 
-      // Single byte numeric ops.
+      /* --- single byte numeric ops --- */
       if (Object.prototype.hasOwnProperty.call(UNARY_BYTE, name)) {
         w.WriteU8(UNARY_BYTE[name]);
         return;
       }
 
-      // SIMD. (0xfd prefix).
+      /* --- simd 0xfd --- */
       if (Object.prototype.hasOwnProperty.call(SIMD, name)) {
         const [op, shape, spec] = SIMD[name];
         w.WriteU8(OP.SimdPrefix);
@@ -2071,7 +1997,6 @@
           case 'LS': {
             ctx.RequireMemory();
             const size = spec;
-            // Lane mem ops: ["v128.load8_lane", [offset, align], lane].
             const lane = args[args.length - 1];
             const memArgs = args.slice(0, -1);
             const memIndex = this.MemIndexChecked_(memArgs);
@@ -2084,7 +2009,6 @@
             break;
           }
           case 'C':
-            // v128.const, raw payload or [laneType, laneValues].
             if (args.length >= 2 && typeof args[0] === 'string' &&
               Array.isArray(args[1])) {
               this.WriteV128Bytes_(args, w);
@@ -2097,7 +2021,6 @@
             break;
           case 'EX':
           case 'RP': {
-            // Extract / replace lane: write lane index as a U8.
             assert(args.length >= 1, 'extract_lane/replace_lane needs a lane index');
             const lanes = SimdLaneCount(name, undefined);
             assert(lanes === 0 || (Number.isInteger(args[0]) &&
@@ -2108,13 +2031,12 @@
             break;
           }
           default:
-            // No immediates for splat / unary / binary / etc.
             break;
         }
         return;
       }
 
-      // GC. (0xfb prefix).
+      /* --- gc 0xfb --- */
       if (Object.prototype.hasOwnProperty.call(GC, name)) {
         const [op, shape] = GC[name];
         w.WriteU8(OP.GcPrefix);
@@ -2130,7 +2052,6 @@
             w.WriteU32LEB(ctx.ResolveType(args[0]));
             break;
           case 'alen':
-            // array.len has no immediate.
             break;
           case 'sget':
           case 'sget_su':
@@ -2159,8 +2080,6 @@
               this.CheckIndex_(args[0], 'type', this.builder_.NumTypes());
             }
             w.WriteU32LEB(ctx.ResolveType(args[0]));
-            // new_data and init_data use the data index space,
-            // new_elem and init_elem use the elem index space.
             const isData = name === 'array.new_data' || name === 'array.init_data';
             w.WriteU32LEB(isData ? ctx.ResolveData(args[1]) : ctx.ResolveElem(args[1]));
             break;
@@ -2192,7 +2111,6 @@
             this.WriteBrOnCast_(args, w, ctx, controlDepth);
             break;
           default:
-            // rconvert / ri31 / i31get carry no immediates.
             break;
         }
         return;
@@ -2201,13 +2119,8 @@
       throw new CompilationFailed('unknown instruction "' + name + '"');
     }
 
-    // Write the 16 bytes of a v128.const lane payload, accepts:
-    //   a lane type name plus an array of lane values, like ['i32x4', [1,2,3,4]]
-    //   a 32-hex digit string
-    //   a BigInt (little endian)
-    //   an array of 16 byte values
+    /* --- write 16 bytes of v128 const --- */
     WriteV128Bytes_(v, w) {
-      // Lane type form: [laneType, laneValues].
       if (Array.isArray(v) && v.length === 2 &&
         typeof v[0] === 'string' && Array.isArray(v[1])) {
         const laneType = v[0];
@@ -2276,7 +2189,7 @@
       }
     }
 
-    // Lane indices of i8x16.shuffle: 16 bytes, each 0..31.
+    /* --- write i8x16 shuffle lane indices --- */
     WriteLaneIndices_(v, w, count) {
       assert(Array.isArray(v) && v.length === count, 'shuffle expects ' + count + ' lanes');
       for (let i = 0; i < count; i++) {
@@ -2285,8 +2198,7 @@
       }
     }
 
-    // Heap type immediate for ref.test, ref.cast and br_on_cast.
-    // Type indices are SLEB128, names are single byte (WriteHeapType).
+    /* --- heap type immediate for ref test cast br on cast --- */
     WriteHeapTypeArg_(ht, w) {
       if (typeof ht === 'number') {
         assert(Number.isInteger(ht) && ht >= 0, 'heap type index must be >= 0');
@@ -2305,7 +2217,7 @@
       throw new CompilationFailed('cannot encode heap type immediate: ' + JSON.stringify(ht));
     }
 
-    // br_on_cast: [flags, depth, srcType, dstType].
+    /* --- br_on_cast flags depth src dst --- */
     WriteBrOnCast_(args, w, ctx, controlDepth) {
       const flags = args[0];
       assert(Number.isInteger(flags) && flags >= 0 && flags <= 3,
@@ -2320,7 +2232,7 @@
       this.WriteHeapTypeArg_(args[3], w);
     }
 
-    // Memory index from memarg args: [offset], [offset, align], ... , memIndex.
+    /* --- memory index from memarg args --- */
     MemArgIndex_(args) {
       if (args.length === 0) {
         return 0;
@@ -2331,7 +2243,7 @@
       return args.length > 2 ? args[2] : 0;
     }
 
-    // Bounds check a numeric index against a space size.
+    /* --- bounds check numeric index --- */
     CheckIndex_(idx, space, size) {
       if (!(Number.isSafeInteger(idx) && idx >= 0 && idx < size)) {
         throw new CHECK_EQ('invalid ' + space + ' index ' + idx +
@@ -2339,8 +2251,7 @@
       }
     }
 
-    // Bounds check the memory index of a memarg-style args list.
-    // Named memories (import field names) are resolved by ResolveMemory.
+    /* --- bounds check memory index in memarg --- */
     MemIndexChecked_(args) {
       const mi = this.MemArgIndex_(args);
       if (typeof mi === 'number') {
@@ -2349,8 +2260,8 @@
       return mi;
     }
 
-    // Memarg: flags (align log2, bit 6 = memory index), index, offset.
-    // Atomic ops must use natural alignment.
+    /* --- write memarg flags align index offset --- */
+    /* --- atomic ops must use natural alignment --- */
     WriteMemArg(args, size, w, atomic, addrType) {
       assert(addrType === 'i32' || addrType === 'i64',
         'memarg: bad address type ' + addrType);
@@ -2415,24 +2326,20 @@
     }
   }
 
-  // Stack type checker, checks operand stack types before the engine does.
-  // Strict on scalars, lenient on refs (accepts subtypes).
+  /* --- stack type checker --- */
   const BOTTOM = 'bottom';
 
   function TypesMatch(actual, expected, builder) {
     if (actual === BOTTOM || expected === BOTTOM) return true;
     if (actual === expected) return true;
 
-    // Ref subtype checks.
     const a = typeof actual === 'string' ? actual : null;
     const e = typeof expected === 'string' ? expected : null;
     if (a && e && a.startsWith('null') && !e.startsWith('null')) {
-      // nullfuncref <: funcref, etc.
       return e === a.slice(4) || e === a.slice(4).replace('null', '') ||
         e === a.slice(4, -4) + 'ref';
     }
     if (a && e) {
-      // ref hierarchy: structref/arrayref/i31ref <: eqref <: anyref.
       const base = a.replace('null', '');
       const refBase = (base.endsWith('ref') ? base : base + 'ref');
       if (refBase === 'structref' || refBase === 'arrayref' || refBase === 'i31ref') {
@@ -2446,13 +2353,11 @@
       if (a === 'nulli31ref' && (e === 'i31ref' || e === 'eqref' || e === 'anyref')) return true;
     }
 
-    // Typed ref {ref, nullable} <: abstract ref.
     if (IsPlainObject(actual) && typeof expected === 'string') {
       const heap = actual.ref;
       if (typeof heap === 'string') {
         if (heap === 'any' && expected === 'anyref') return true;
         if (heap === 'eq' && (expected === 'eqref' || expected === 'anyref')) return true;
-        // funcref/externref/exnref are top types, not subtypes of anyref.
         if (heap === 'func' && expected === 'funcref') return true;
         if (heap === 'extern' && expected === 'externref') return true;
         if (heap === 'exn' && expected === 'exnref') return true;
@@ -2460,7 +2365,6 @@
           (expected === 'eqref' || expected === 'anyref' || expected === heap + 'ref')) return true;
       }
       if (typeof heap === 'number') {
-        // The referenced type's kind decides which abstract refs it matches.
         const t = builder ? builder.types_[heap] : null;
         if (t && t.kind === 'func') {
           if (expected === 'funcref') return true;
@@ -2468,15 +2372,12 @@
           if (expected === 'anyref' || expected === 'eqref' ||
             expected === 'structref' || expected === 'arrayref') return true;
         } else if (expected === 'anyref') {
-          return true;  // Unknown kind: only the top type matches.
+          return true;
         }
       }
     }
     if (IsPlainObject(actual) && IsPlainObject(expected)) {
-      // Same heap target, or actual is a subtype via the supertype chain.
-      // Nullable refs do not match non-nullable slots.
       if (actual.ref === expected.ref) {
-        // Omitted nullable means nullable (matches WriteValueType).
         const expectedNullable = expected.nullable !== false;
         const actualNullable = actual.nullable !== false;
         return expectedNullable || !actualNullable;
@@ -2499,12 +2400,8 @@
     return false;
   }
 
-  // Universal instruction arity table, [min, max] immediate count. It
-  // mirrors the encoder exactly, so every instruction's argument count is
-  // validated up front here - a wrong count is a validation finding with
-  // attribution, never silently encoded or left to crash in the encoder.
-  // Ops not listed are validated by their dedicated checker paths (SIMD,
-  // GC, atomics, loads/stores).
+  /* --- instruction arity table --- */
+  /* --- wrong count is validation finding --- */
   const INSTR_ARITY = {
     unreachable: [0, 0], nop: [0, 0], end: [0, 0], else: [0, 0],
     return: [0, 0], drop: [0, 0], catch_all: [0, 0], throw_ref: [0, 0],
@@ -2527,14 +2424,8 @@
     'call_indirect': [1, 2], 'return_call_indirect': [1, 2],
     br_table: [2, 2],
   };
-  // Opcode only families take zero immediates, the encoder writes just
-  // the opcode for single byte numeric / comparison ops and the numeric
-  // conversions, silently dropping any stray arguments. Validate the
-  // count up front like every other op instead of encoding a wrong
-  // module.
   for (const n of Object.keys(UNARY_BYTE)) INSTR_ARITY[n] = [0, 0];
   for (const n of Object.keys(CONV)) INSTR_ARITY[n] = [0, 0];
-  // table.size / grow / fill take a table index.
   INSTR_ARITY['table.size'] = [1, 1];
   INSTR_ARITY['table.grow'] = [1, 1];
   INSTR_ARITY['table.fill'] = [1, 1];
@@ -2552,12 +2443,7 @@
       this.errIndex_ = -1;
       this.errOccurrence_ = 0;
       this.terminated_ = false;
-      // Value stack: array of types or BOTTOM markers.
       this.stack_ = [];
-      // Control stack: {kind, labelTypes, endTypes, blockParams, hasElse,
-      // height, unreachable}. The function frame's label types are
-      // the function's result types, so an explicit terminating 'end'
-      // verifies them like any other block.
       const funcType = this.builder_.FuncType_(this.fn_ ? this.fn_.typeIndex_ : 0);
       const results = funcType ? funcType.results.slice() : [];
       this.control_ = [{
@@ -2569,7 +2455,6 @@
         height: 0,
         unreachable: false,
       }];
-      // Load local types: params first, then declared locals.
       this.localTypes_ = [];
       const params = this.fn_ ? this.builder_.FuncTypeParams_(this.fn_) : [];
       for (const p of params) this.localTypes_.push(p);
@@ -2583,10 +2468,6 @@
         const instr = instrs[i];
         const name = Array.isArray(instr) ? instr[0] : instr;
         if (typeof name !== 'string') {
-          // Malformed instruction (e.g. a typo like ['local.get', 4]
-          // ['end'] parses as an array index expression and yields
-          // undefined). Report it as a compilation-failed finding instead
-          // of letting the encoder crash on name.startsWith below.
           this.curInstr_ = instr;
           this.curIndex_ = i;
           this.Error_('bad instruction: expected \'[op, args]\' or an op name string, got \'' +
@@ -2598,14 +2479,12 @@
         this.curIndex_ = i;
         this.CheckOne_(name, args);
       }
-      // End of function checks are not tied to one instruction.
       this.curInstr_ = undefined;
       this.curIndex_ = -1;
       if (!this.err_) {
         const funcType = this.builder_.FuncType_(this.fn_ ? this.fn_.typeIndex_ : 0);
         const results = funcType ? funcType.results : [];
         if (this.control_.length <= 1) {
-          // Verify the function's results and that nothing is left over.
           for (let i = results.length - 1; i >= 0; i--) {
             this.PopExpected_(results[i]);
           }
@@ -2626,7 +2505,6 @@
     Error_(msg) {
       if (!this.err_) {
         this.err_ = new CompilationFailed('TypeError: ' + msg);
-        // Remember the instruction being checked when the error fired.
         if (this.curIndex_ !== undefined && this.curIndex_ >= 0) {
           this.errInstr_ = this.curInstr_;
           this.errIndex_ = this.curIndex_;
@@ -2656,7 +2534,6 @@
       if (this.stack_.length > 0) {
         return this.stack_.pop();
       }
-      // Check if the current frame is polymorphic (unreachable).
       const frame = this.control_[this.control_.length - 1];
       if (frame && frame.unreachable) {
         return BOTTOM;
@@ -2674,7 +2551,6 @@
       return actual;
     }
 
-    // Readable name of a checker type for error messages.
     TypeName_(t) {
       if (typeof t === 'string') return t;
       if (t === BOTTOM) return 'bottom';
@@ -2689,7 +2565,7 @@
       return result;
     }
 
-    // Resolve a block type (the first arg of block/loop/if).
+    /* --- resolve block type to params and results --- */
     ResolveBlockType_(bt) {
       if (bt === null || bt === undefined) return { params: [], results: [] };
       if (typeof bt === 'string') return { params: [], results: [bt] };
@@ -2707,7 +2583,7 @@
       return { params: [], results: [] };
     }
 
-    // Check if we are in an unreachable (polymorphic) stack state.
+    /* --- true if in unreachable polymorphic state --- */
     IsUnreachable_() {
       for (let i = this.control_.length - 1; i >= 0; i--) {
         if (this.control_[i].unreachable) return true;
@@ -2716,15 +2592,10 @@
     }
 
     CheckOne_(name, args) {
-      // Nothing may follow the function's terminating end.
       if (this.terminated_) {
         this.Error_('instruction appears after the outermost end');
         return;
       }
-      // Universal arity: every instruction's immediate count is validated
-      // up front here (mirroring the encoder exactly), so a wrong argument
-      // count is a validation finding with attribution never silently
-      // encoded or left to crash inside the encoder.
       const arity = INSTR_ARITY[name];
       if (arity !== undefined &&
         (args.length < arity[0] || args.length > arity[1])) {
@@ -2734,7 +2605,7 @@
         this.Error_(name + ': expected ' + want + ', got ' + args.length);
         return;
       }
-      // Control flow.
+      /* --- control flow --- */
       if (name === 'unreachable') {
         this.control_[this.control_.length - 1].unreachable = true;
         return;
@@ -2743,14 +2614,11 @@
       if (name === 'block' || name === 'loop' || name === 'if') {
         const bt = this.ResolveBlockType_(args[0]);
         if (name === 'if') {
-          // The condition sits on top of any block parameters.
           this.PopExpected_('i32');
         }
-        // Consume the block's parameters. The frame height is the stack below them.
         this.PopN_(bt.params);
         this.control_.push({
           kind: name,
-          // Branches target results, loops target their parameters.
           labelTypes: name === 'loop' ? bt.params : bt.results,
           endTypes: bt.results,
           blockParams: bt.params,
@@ -2758,7 +2626,6 @@
           height: this.stack_.length,
           unreachable: false,
         });
-        // Push the parameters back as the block's initial stack.
         for (const p of bt.params) this.Push_(p);
         return;
       }
@@ -2770,7 +2637,6 @@
         }
         frame.hasElse = true;
         if (!frame.unreachable) {
-          // The then branch must leave the ifs results on the stack.
           for (let i = frame.endTypes.length - 1; i >= 0; i--) {
             this.PopExpected_(frame.endTypes[i]);
           }
@@ -2779,7 +2645,6 @@
               ' value(s) left on the stack at end of then-branch');
           }
         }
-        // Restore the stack, then push the params back for the false branch.
         this.stack_.length = frame.height;
         for (const p of frame.blockParams) this.Push_(p);
         frame.unreachable = false;
@@ -2791,8 +2656,6 @@
           return;
         }
         const frame = this.control_.pop();
-        // An if without else: params must match results (the false branch
-        // leaves the params).
         if (frame.kind === 'if' && !frame.hasElse) {
           const p = frame.blockParams;
           const r = frame.endTypes;
@@ -2810,7 +2673,6 @@
           }
         }
         if (!frame.unreachable) {
-          // Pop results, restore height, then push results.
           for (let i = frame.endTypes.length - 1; i >= 0; i--) {
             this.PopExpected_(frame.endTypes[i]);
           }
@@ -2819,7 +2681,6 @@
               ' value(s) left on the stack at end of block');
           }
         } else if (this.stack_.length - frame.height > frame.endTypes.length) {
-          // Dead code can still push results, so reject an over full stack.
           this.Error_('unused values not explicitly dropped by end of block');
         }
         this.stack_.length = frame.height;
@@ -2837,7 +2698,6 @@
           return;
         }
         const target = this.control_[this.control_.length - 1 - depth];
-        // Pop the label values (BOTTOM in unreachable code).
         for (let i = target.labelTypes.length - 1; i >= 0; i--) {
           this.PopExpected_(target.labelTypes[i]);
         }
@@ -2856,12 +2716,11 @@
         for (let i = target.labelTypes.length - 1; i >= 0; i--) {
           this.PopExpected_(target.labelTypes[i]);
         }
-        // Push them back for the fallthrough.
         for (const t of target.labelTypes) this.Push_(t);
         return;
       }
       if (name === 'br_table') {
-        this.PopExpected_('i32');  // selector
+        this.PopExpected_('i32');
         const depths = args[0];
         const def = args[1];
         const InRange = (d) => Number.isInteger(d) && d >= 0 && d < this.control_.length;
@@ -2879,7 +2738,6 @@
             return;
           }
         }
-        // All targets must accept the same label values, popped once.
         const targets = depths.map((d) => this.control_[this.control_.length - 1 - d]);
         targets.push(this.control_[this.control_.length - 1 - def]);
         const labelTypes = targets[0].labelTypes;
@@ -2913,7 +2771,7 @@
         return;
       }
 
-      // Locals.
+      /* --- locals --- */
       if (name === 'local.get') {
         const idx = this.fn_ ? this.fn_.ResolveLocal(args[0]) : 0;
         if (idx >= 0 && idx < this.localTypes_.length) {
@@ -2943,7 +2801,7 @@
         return;
       }
 
-      // Globals.
+      /* --- globals --- */
       if (name === 'global.get') {
         const idx = this.builder_.ResolveGlobal(args[0]);
         const entry = this.builder_.GlobalAt(idx);
@@ -2963,7 +2821,7 @@
         return;
       }
 
-      // table ops: the value type is the table's element type.
+      /* --- table ops --- */
       if (name === 'table.get') {
         const elem = this.TableElemType_(args[0]);
         this.PopExpected_('i32');
@@ -2981,38 +2839,35 @@
         return;
       }
       if (name === 'table.grow') {
-        // Operand stack: [t value, i32 delta] with delta on top.
         const elem = this.TableElemType_(args[0]);
-        this.PopExpected_('i32');  // delta
-        this.PopExpected_(elem);   // init value
+        this.PopExpected_('i32');
+        this.PopExpected_(elem);
         this.Push_('i32');
         return;
       }
       if (name === 'table.fill') {
-        // Operand stack: [i32 start, t value, i32 len].
         const elem = this.TableElemType_(args[0]);
-        this.PopExpected_('i32');  // len
-        this.PopExpected_(elem);   // value
-        this.PopExpected_('i32');  // start index
+        this.PopExpected_('i32');
+        this.PopExpected_(elem);
+        this.PopExpected_('i32');
         return;
       }
 
-      // Constants.
+      /* --- constants --- */
       if (name === 'i32.const') { this.Push_('i32'); return; }
       if (name === 'i64.const') { this.Push_('i64'); return; }
       if (name === 'f32.const') { this.Push_('f32'); return; }
       if (name === 'f64.const') { this.Push_('f64'); return; }
 
-      // Drop.
+      /* --- drop --- */
       if (name === 'drop') { this.Pop_(); return; }
 
-      // Select.
+      /* --- select --- */
       const typedSelect = args.length > 0 && Array.isArray(args[0]);
       if (name === 'select' && !typedSelect) {
         this.PopExpected_('i32');
         const t2 = this.Pop_();
         const t1 = this.Pop_();
-        // Untyped select is numeric only. Refs need select_t.
         if ((t1 !== BOTTOM && this.IsRefLike_(t1)) ||
           (t2 !== BOTTOM && this.IsRefLike_(t2))) {
           this.Error_('select on reference types requires select_t');
@@ -3033,7 +2888,6 @@
           this.Error_('select_t: expected a non-empty type list');
           return;
         }
-        // Consumes [t*, t*, i32], produces [t*].
         this.PopExpected_('i32');
         for (let round = 0; round < 2; round++) {
           for (let i = types.length - 1; i >= 0; i--) {
@@ -3044,7 +2898,7 @@
         return;
       }
 
-      // Memory.
+      /* --- memory --- */
       if (name === 'memory.size') {
         if (!this.builder_.HasMemory()) {
           this.Error_('memory.size: no memory declared');
@@ -3065,7 +2919,7 @@
         return;
       }
 
-      // Calls.
+      /* --- calls --- */
       if (name === 'call') {
         const funcIdx = this.builder_.ResolveFunc(args[0]);
         const tt = this.builder_.FuncType_(this.builder_.FuncTypeIdxForIndex_(funcIdx));
@@ -3094,7 +2948,6 @@
         if (!this.CheckFuncTypeRef_(tt, typeIdx, 'call_ref')) {
           return;
         }
-        // Callee is a (ref null $type) on top of the stack.
         this.PopExpected_({ ref: typeIdx, nullable: true });
         if (tt) {
           for (let i = tt.params.length - 1; i >= 0; i--) this.PopExpected_(tt.params[i]);
@@ -3138,11 +2991,10 @@
         return;
       }
 
-      // Ref ops.
+      /* --- ref ops --- */
       if (name === 'ref.null') {
         const ht = args[0];
         if (typeof ht === 'number') {
-          // A nullable typed ref; validate the index up front.
           this.builder_.ResolveTypeRef(ht);
           this.Push_({ ref: ht, nullable: true });
           return;
@@ -3177,7 +3029,6 @@
         return;
       }
       if (name === 'ref.func') {
-        // The target must be declared (exported or in an elem segment).
         const funcIdx = this.builder_.ResolveFunc(args[0]);
         if (!this.builder_.IsFuncDeclared(funcIdx)) {
           this.Error_('ref.func: function ' + funcIdx +
@@ -3189,13 +3040,11 @@
         return;
       }
       if (name === 'ref.eq') {
-        // [eqref eqref] -> [i32]; funcref/externref/anyref are not eqref.
         const t2 = this.Pop_();
         const t1 = this.Pop_();
         const EqOk = (t) => {
           if (t === BOTTOM) return true;
           if (IsPlainObject(t) && t.ref !== undefined) {
-            // Struct/array refs are eqref; function refs are not.
             const tt = this.builder_.types_[t.ref];
             return tt && (tt.kind === 'struct' || tt.kind === 'array');
           }
@@ -3213,7 +3062,6 @@
         return;
       }
       if (name === 'ref.as_non_null') {
-        // Strip nullability: (ref null ht) -> (ref ht).
         const t = this.Pop_();
         if (!this.IsRefLike_(t)) {
           this.Error_('ref.as_non_null: expected a reference, got ' + this.TypeName_(t));
@@ -3223,7 +3071,6 @@
         return;
       }
       if (name === 'br_on_null') {
-        // Branch takes the ref, fallthrough carries t* plus a non-null ref.
         const depth = args[0];
         if (!(Number.isInteger(depth) && depth >= 0 && depth < this.control_.length)) {
           this.Error_('br_on_null: depth ' + depth + ' out of range');
@@ -3243,7 +3090,6 @@
         return;
       }
       if (name === 'br_on_non_null') {
-        // The branch takes the ref; fallthrough keeps only t* below it.
         const depth = args[0];
         if (!(Number.isInteger(depth) && depth >= 0 && depth < this.control_.length)) {
           this.Error_('br_on_non_null: depth ' + depth + ' out of range');
@@ -3260,27 +3106,22 @@
           this.Error_('br_on_non_null: target label must end with a reference type');
           return;
         }
-        // The branch value must fit the label's final reference type.
         if (!TypesMatch(t, lt[lt.length - 1], this.builder_)) {
           this.Error_('br_on_non_null: value type ' + this.TypeName_(t) +
             ' does not match target label type ' + this.TypeName_(lt[lt.length - 1]));
           return;
         }
-        // The engine consumes the label values AND the ref (arity + 1);
-        // the fallthrough keeps t* (the label minus its last value) plus
-        // the non-null ref.
         for (let i = lt.length - 1; i >= 0; i--) {
           this.PopExpected_(lt[i]);
         }
         for (let i = lt.length - 2; i >= 0; i--) {
           this.Push_(lt[i]);
         }
-        // Fallthrough keeps the non-null reference on the stack.
         this.Push_(this.NonNullRef_(t));
         return;
       }
 
-      // Memory load and store.
+      /* --- memory load store --- */
       if (this.builder_.IsLoadStoreName_(name)) {
         const unreachable = this.IsUnreachable_();
         const isStore = name.includes('.store');
@@ -3299,7 +3140,7 @@
         return;
       }
 
-      // Atomics (0xfe prefix). Checked before numeric ops so they are not misread.
+      /* --- atomics --- */
       if (name.startsWith('i32.atomic.') || name.startsWith('i64.atomic.')) {
         const valType = name.startsWith('i64.atomic.') ? 'i64' : 'i32';
         const addrType = this.MemAddrType_(args);
@@ -3310,12 +3151,11 @@
           this.PopExpected_(valType);
           this.PopExpected_(addrType);
         } else if (name.includes('.cmpxchg')) {
-          this.PopExpected_(valType);   // replacement
-          this.PopExpected_(valType);   // expected
+          this.PopExpected_(valType);
+          this.PopExpected_(valType);
           this.PopExpected_(addrType);
           this.Push_(valType);
         } else {
-          // atomic rmw (add/sub/and/or/xor/xchg, incl width variants).
           this.PopExpected_(valType);
           this.PopExpected_(addrType);
           this.Push_(valType);
@@ -3323,22 +3163,22 @@
         return;
       }
       if (name === 'memory.atomic.notify') {
-        this.PopExpected_('i32');       // count
+        this.PopExpected_('i32');
         this.PopExpected_(this.MemAddrType_(args));
         this.Push_('i32');
         return;
       }
       if (name === 'memory.atomic.wait32' || name === 'memory.atomic.wait64') {
         const valType = name === 'memory.atomic.wait32' ? 'i32' : 'i64';
-        this.PopExpected_('i64');       // timeout
-        this.PopExpected_(valType);     // expected
+        this.PopExpected_('i64');
+        this.PopExpected_(valType);
         this.PopExpected_(this.MemAddrType_(args));
         this.Push_('i32');
         return;
       }
       if (name === 'memory.atomic.fence') return;
 
-      // Conversions, exact types from the CONV table.
+      /* --- conversions --- */
       if (Object.prototype.hasOwnProperty.call(CONV, name)) {
         const [src, dst] = CONV[name];
         this.PopExpected_(src);
@@ -3346,7 +3186,7 @@
         return;
       }
 
-      // Single byte numeric ops.
+      /* --- single byte numeric ops --- */
       if (name.startsWith('i32.')) {
         if (this.IsBinary_(name)) {
           this.PopExpected_('i32'); this.PopExpected_('i32'); this.Push_('i32');
@@ -3383,23 +3223,22 @@
         return;
       }
 
-      // SIMD.
+      /* --- simd --- */
       if (Object.prototype.hasOwnProperty.call(SIMD, name)) {
         const [op, shape, spec] = SIMD[name];
         this.CheckSimd_(name, shape, spec, args);
         return;
       }
 
-      // GC.
+      /* --- gc --- */
       if (Object.prototype.hasOwnProperty.call(GC, name)) {
         const [op, shape] = GC[name];
         this.CheckGc_(name, shape, args);
         return;
       }
 
-      // Exceptions.
+      /* --- exceptions --- */
       if (name === 'throw') {
-        // Pop the tag's params off the stack.
         const tagIdx = this.builder_.ResolveTag(args[0]);
         const tagType = tagIdx >= 0 ? this.builder_.TagTypeAt(tagIdx) : null;
         if (tagType) {
@@ -3411,8 +3250,6 @@
         return;
       }
       if (name === 'rethrow') {
-        // Consumes nothing,
-        // the target must be a catch handler.
         const depth = args[0];
         if (!(Number.isInteger(depth) && depth >= 0 &&
           depth < this.control_.length)) {
@@ -3435,7 +3272,6 @@
       }
       if (name === 'try') {
         const bt = this.ResolveBlockType_(args[0]);
-        // Consume the try block's parameters.
         this.PopN_(bt.params);
         this.control_.push({
           kind: name,
@@ -3462,10 +3298,6 @@
           unreachable: false,
         });
         for (const p of bt.params) this.Push_(p);
-        // Validate the catches. Each is [tagRef or 'all', depth, captureExnRef?].
-        // A catch depth targets the frame d levels outside the try_table.
-        // The payload (tag params plus exnref when capturing) must be a
-        // subtype of the target label's types.
         const catches = args[1];
         if (!Array.isArray(catches)) {
           this.Error_('try_table: expected catches array');
@@ -3531,7 +3363,6 @@
         }
         frame.inCatch = true;
         this.stack_.length = frame.height;
-        // Restore the params, then push the caught exception's fields.
         for (const p of frame.blockParams) this.Push_(p);
         const tagIdx = this.builder_.ResolveTag(args[0]);
         const tagType = tagIdx >= 0 ? this.builder_.TagTypeAt(tagIdx) : null;
@@ -3549,13 +3380,11 @@
         }
         frame.inCatch = true;
         this.stack_.length = frame.height;
-        // Restore the params; catch_all pushes no exception values.
         for (const p of frame.blockParams) this.Push_(p);
         frame.unreachable = false;
         return;
       }
       if (name === 'delegate') {
-        // Delegate targets a frame outside the try itself.
         const frame = this.control_[this.control_.length - 1];
         if (!frame || frame.kind !== 'try') {
           this.Error_('delegate outside of a try block');
@@ -3568,8 +3397,6 @@
             (this.control_.length - 1) + ')');
           return;
         }
-        // Delegate ends the try body like 'end'. Its results must be
-        // on the stack, and they stay there for the enclosing frame.
         if (!frame.unreachable) {
           for (let i = frame.endTypes.length - 1; i >= 0; i--) {
             this.PopExpected_(frame.endTypes[i]);
@@ -3586,7 +3413,7 @@
         return;
       }
 
-      // Bulk memory (table.init, table.copy).
+      /* --- bulk memory --- */
       if (name === 'table.init') {
         this.PopExpected_('i32'); this.PopExpected_('i32'); this.PopExpected_('i32');
         return;
@@ -3596,34 +3423,30 @@
         return;
       }
       if (name === 'memory.init') {
-        // [addr, offset, length] -> [].
         const addr = this.BulkMemAddrType_(args[1]);
-        this.PopExpected_('i32');  // length
-        this.PopExpected_('i32');  // offset
+        this.PopExpected_('i32');
+        this.PopExpected_('i32');
         this.PopExpected_(addr);
         return;
       }
       if (name === 'memory.copy') {
-        // [dstAddr, srcAddr, length] -> []; all use the address type.
         const dst = this.BulkMemAddrType_(args[0]);
         const src = this.BulkMemAddrType_(args[1]);
-        this.PopExpected_(dst);  // length (same address type in practice)
+        this.PopExpected_(dst);
         this.PopExpected_(src);
         this.PopExpected_(dst);
         return;
       }
       if (name === 'memory.fill') {
-        // [addr, value, length] -> []; the value stays i32 for memory64.
         const addr = this.BulkMemAddrType_(args[0]);
-        this.PopExpected_(addr);  // length
-        this.PopExpected_('i32');  // value
+        this.PopExpected_(addr);
+        this.PopExpected_('i32');
         this.PopExpected_(addr);
         return;
       }
       if (name === 'memory.discard') {
-        // [addr, length] -> [].
         const addr = this.BulkMemAddrType_(args[0]);
-        this.PopExpected_(addr);  // length
+        this.PopExpected_(addr);
         this.PopExpected_(addr);
         return;
       }
@@ -3631,7 +3454,7 @@
         return;
       }
 
-      // Unknown instructions are rejected, never silently skipped.
+      /* --- unknown instruction --- */
       this.Error_('unknown instruction "' + name + '"');
     }
 
@@ -3641,24 +3464,23 @@
       const addrType = isMemShape ? this.MemAddrType_(args) : null;
       switch (shape) {
         case 'L':
-          this.PopExpected_(addrType);  // address
+          this.PopExpected_(addrType);
           this.Push_('v128');
           break;
         case 'S':
-          this.PopExpected_('v128');  // value
-          this.PopExpected_(addrType);  // address
+          this.PopExpected_('v128');
+          this.PopExpected_(addrType);
           break;
         case 'LL':
-          // The lane index is an immediate, not a stack operand.
           this.CheckLaneIndex_(name, spec, args[args.length - 1]);
           this.PopExpected_('v128');
-          this.PopExpected_(addrType);  // address
+          this.PopExpected_(addrType);
           this.Push_('v128');
           break;
         case 'LS':
           this.CheckLaneIndex_(name, spec, args[args.length - 1]);
           this.PopExpected_('v128');
-          this.PopExpected_(addrType);  // address
+          this.PopExpected_(addrType);
           break;
         case 'C':
           this.Push_('v128');
@@ -3706,7 +3528,7 @@
           this.Push_('i32');
           break;
         case 'SHF':
-          this.PopExpected_('i32');  // shift count
+          this.PopExpected_('i32');
           this.PopExpected_('v128');
           this.Push_('v128');
           break;
@@ -3720,7 +3542,6 @@
     CheckGc_(name, shape, args) {
       switch (shape) {
         case 'snew': {
-          // Pop field values, push the struct ref.
           const t = this.GcType_(args[0]);
           if (t && t.kind !== 'struct') {
             this.Error_('struct.new: type ' + args[0] + ' is not a struct type');
@@ -3748,7 +3569,6 @@
             return;
           }
           this.PopExpected_(this.TypedRef_(args[0]));
-          // get_s/u produce i32; get produces the field type (packed as i32).
           this.Push_(shape === 'sget' ? FieldStackType(f.type) : 'i32');
           break;
         }
@@ -3773,13 +3593,13 @@
         }
         case 'anew': {
           const t = this.GcType_(args[0]);
-          this.PopExpected_('i32');  // length
+          this.PopExpected_('i32');
           this.PopExpected_(t && t.element ? FieldStackType(t.element.type) : 'i32');
           this.Push_(this.TypedRef_(args[0]));
           break;
         }
         case 'anewdef':
-          this.PopExpected_('i32');  // length
+          this.PopExpected_('i32');
           this.Push_(this.TypedRef_(args[0]));
           break;
         case 'anewfixed': {
@@ -3797,33 +3617,32 @@
         }
         case 'anewseg': {
           this.ResolveSegRef_(name, args[1]);
-          this.PopExpected_('i32');  // length
-          this.PopExpected_('i32');  // offset
+          this.PopExpected_('i32');
+          this.PopExpected_('i32');
           this.Push_(this.TypedRef_(args[0]));
           break;
         }
         case 'aseginit': {
           this.ResolveSegRef_(name, args[1]);
           this.GcType_(args[0]);
-          this.PopExpected_('i32');  // length
-          this.PopExpected_('i32');  // offset
-          this.PopExpected_('i32');  // index
+          this.PopExpected_('i32');
+          this.PopExpected_('i32');
+          this.PopExpected_('i32');
           this.PopExpected_(this.TypedRef_(args[0]));
           break;
         }
         case 'aget':
         case 'aget_su': {
           const t = this.GcType_(args[0]);
-          this.PopExpected_('i32');  // index
+          this.PopExpected_('i32');
           this.PopExpected_(this.TypedRef_(args[0]));
-          // get_s/u produce i32; get produces the element type (packed as i32).
           this.Push_(shape === 'aget' && t && t.element ? FieldStackType(t.element.type) : 'i32');
           break;
         }
         case 'aset': {
           const t = this.GcType_(args[0]);
           this.PopExpected_(t && t.element ? FieldStackType(t.element.type) : 'i32');
-          this.PopExpected_('i32');  // index
+          this.PopExpected_('i32');
           this.PopExpected_(this.TypedRef_(args[0]));
           break;
         }
@@ -3833,14 +3652,13 @@
           break;
         case 'afill': {
           const t = this.GcType_(args[0]);
-          this.PopExpected_('i32');  // length
-          this.PopExpected_(t && t.element ? FieldStackType(t.element.type) : 'i32');  // value
-          this.PopExpected_('i32');  // index
+          this.PopExpected_('i32');
+          this.PopExpected_(t && t.element ? FieldStackType(t.element.type) : 'i32');
+          this.PopExpected_('i32');
           this.PopExpected_(this.TypedRef_(args[0]));
           break;
         }
         case 'acopy': {
-          // [dstRef, dstIdx, srcRef, srcIdx, len]; element types must match.
           const dstT = this.GcType_(args[0]);
           const srcT = this.GcType_(args[1]);
           if (dstT && srcT && dstT.element && srcT.element &&
@@ -3849,18 +3667,16 @@
             this.Error_('array.copy: destination and source element types differ');
             return;
           }
-          this.PopExpected_('i32');  // length
-          this.PopExpected_('i32');  // src index
+          this.PopExpected_('i32');
+          this.PopExpected_('i32');
           this.PopExpected_(this.TypedRef_(args[1]));
-          this.PopExpected_('i32');  // dst index
+          this.PopExpected_('i32');
           this.PopExpected_(this.TypedRef_(args[0]));
           break;
         }
 
         case 'rtest':
         case 'rcast': {
-          // The operand must belong to the target's category: a funcref
-          // operand is only valid for a func target, and so on.
           const target = args[0];
           const cat = (target === 'func' || target === 'funcref') ? 'funcref' :
             (target === 'extern' || target === 'externref') ? 'externref' :
@@ -3874,8 +3690,6 @@
           break;
         }
         case 'rbrancast': {
-          // [flags, depth, srcHeapType, dstHeapType]. The flags byte selects
-          // nullability (bit 0 = source nullable, bit 1 = dest nullable).
           const flags = args[0];
           if (!(Number.isInteger(flags) && flags >= 0 && flags <= 3)) {
             this.Error_('br_on_cast: flags must be 0..3');
@@ -3889,7 +3703,6 @@
           }
           const srcType = args[2] !== undefined ? args[2] : 'any';
           const dstType = args[3] !== undefined ? args[3] : srcType;
-          // Numeric heap types must reference existing types.
           if (typeof srcType === 'number' && !this.builder_.types_[srcType]) {
             this.Error_('br_on_cast: unknown source heap type ' + srcType);
             break;
@@ -3906,15 +3719,12 @@
               ' does not match source type ' + this.TypeName_(srcRef));
             break;
           }
-          // Flags bit 0: source is nullable. A nonnull source must not
-          // receive a possibly null operand. The engine enforces this.
           if ((flags & 1) === 0 && operand !== BOTTOM &&
             this.IsNullableRef_(operand)) {
             this.Error_('br_on_cast: source type is non-null but the operand ' +
               'may be null');
             break;
           }
-          // The branch value must fit the target label's final type.
           const target = this.control_[this.control_.length - 1 - depth];
           const lt = target.labelTypes;
           const branchValue = name === 'br_on_cast_fail' ? srcRef : dstRef;
@@ -3925,14 +3735,10 @@
           if (!labelOk) {
             this.Error_('br_on_cast: target label must accept the branch value');
           }
-          // Fallthrough carries the source type (br_on_cast) or the
-          // destination type (_fail).
           this.Push_(name === 'br_on_cast_fail' ? dstRef : srcRef);
           break;
         }
         case 'rconvert':
-          // any.convert_extern: externref -> anyref.
-          // extern.convert_any: anyref -> externref.
           if (name === 'any.convert_extern') {
             this.PopExpected_('externref');
             this.Push_('anyref');
@@ -3956,7 +3762,7 @@
       }
     }
 
-    // Validate a SIMD lane index. The engine rejects out of range ones.
+    /* --- check simd lane index --- */
     CheckLaneIndex_(name, byteSize, lane) {
       const lanes = SimdLaneCount(name, byteSize);
       if (lanes > 0 && !(Number.isInteger(lane) && lane >= 0 && lane < lanes)) {
@@ -3965,15 +3771,13 @@
       }
     }
 
-    // Type descriptor of a GC instruction's type argument.
+    /* --- gc type from type ref --- */
     GcType_(ref) {
       const idx = this.builder_.ResolveTypeRef(ref);
       return this.builder_.types_[idx];
     }
 
-    // Check the segment reference of array.new_data/elem and
-    // array.init_data/elem. new_data and init_data use the data
-    // index space, new_elem and init_elem use the elem index space.
+    /* --- check segment ref for array new or init --- */
     ResolveSegRef_(name, ref) {
       const isData = name === 'array.new_data' || name === 'array.init_data';
       try {
@@ -3988,7 +3792,7 @@
       }
     }
 
-    // call_indirect: type must be a function type and the table funcref.
+    /* --- call_indirect checks --- */
     CheckIndirectCall_(tt, typeIdx, args) {
       if (!tt || tt.kind !== 'func') {
         this.Error_('call_indirect: type ' + typeIdx + ' is not a function type');
@@ -4005,7 +3809,7 @@
       return true;
     }
 
-    // call_ref: the referenced type must be a function type.
+    /* --- call_ref type must be function type --- */
     CheckFuncTypeRef_(tt, typeIdx, name) {
       if (!tt || tt.kind !== 'func') {
         this.Error_(name + ': type ' + typeIdx + ' is not a function type');
@@ -4014,7 +3818,7 @@
       return true;
     }
 
-    // Type reference -> checker type name.
+    /* --- type ref to checker type --- */
     MakeRef_(typeRef) {
       if (typeof typeRef === 'number') {
         const t = this.builder_.types_[typeRef];
@@ -4024,7 +3828,6 @@
         return 'anyref';
       }
       if (typeof typeRef === 'string') {
-        // Abstract heap type name or a ref type name.
         const map = {
           any: 'anyref',
           eq: 'eqref',
@@ -4044,19 +3847,19 @@
       return 'anyref';
     }
 
-    // Strip nullability: (ref null ht) -> (ref ht).
+    /* --- remove nullability from ref type --- */
     NonNullRef_(t) {
       if (t === BOTTOM) return BOTTOM;
       if (IsPlainObject(t) && t.ref !== undefined) {
         return { ref: t.ref, nullable: false };
       }
       if (typeof t === 'string' && t.startsWith('null')) {
-        return t.slice(4);  // nullfuncref -> funcref, nullanyref -> anyref, ...
+        return t.slice(4);
       }
       return t;
     }
 
-    // True if the checker type looks like a reference type.
+    /* --- true if type is ref like --- */
     IsRefLike_(t) {
       if (t === BOTTOM) return true;
       if (IsPlainObject(t) && t.ref !== undefined) return true;
@@ -4066,7 +3869,7 @@
       return false;
     }
 
-    // True if a checker type is definitely a nullable reference.
+    /* --- true if type is nullable ref --- */
     IsNullableRef_(t) {
       if (IsPlainObject(t) && t.ref !== undefined) {
         return t.nullable !== false;
@@ -4077,7 +3880,7 @@
       return false;
     }
 
-    // Table element type by resolved index, or null if out of range.
+    /* --- table element at index --- */
     TableElemAt_(idx) {
       const imports = this.builder_.tableImports_;
       const defs = this.builder_.tableDefs_;
@@ -4086,7 +3889,7 @@
       return entry ? entry.element : null;
     }
 
-    // Element type as a checker type. Typed elements stay concrete for call_ref.
+    /* --- table element as checker type --- */
     TableElemType_(ref) {
       const idx = this.builder_.ResolveTable(ref);
       const elem = this.TableElemAt_(idx);
@@ -4100,22 +3903,22 @@
       return this.MakeRef_(elem);
     }
 
-    // The nullable typed ref that struct.new / array.new / ref.null produce.
+    /* --- nullable typed ref --- */
     TypedRef_(typeRef, nullable) {
       if (typeof typeRef === 'number') {
-        this.builder_.ResolveTypeRef(typeRef);  // validate the index
+        this.builder_.ResolveTypeRef(typeRef);
         return { ref: typeRef, nullable: nullable === false ? false : true };
       }
       return this.MakeRef_(typeRef);
     }
 
-    // Address type of the memory referenced by a memarg-style args list.
+    /* --- address type of memory in memarg --- */
     MemAddrType_(args) {
       if (!this.builder_.HasMemory()) return 'i32';
       return this.builder_.MemoryAddressType(this.builder_.MemargMemIndex(args));
     }
 
-    // Address type for bulk memory instructions, defaulting to memory 0.
+    /* --- address type for bulk memory --- */
     BulkMemAddrType_(memRef) {
       if (!this.builder_.HasMemory()) return 'i32';
       if (memRef === undefined) return this.builder_.MemoryAddressType(0);
@@ -4140,20 +3943,20 @@
     }
   }
 
-  // Function builder
+  /* --- function builder --- */
   class WasmFunctionBuilder {
     constructor(builder, name, typeIndex, typeDescriptor) {
       this.builder_ = builder;
       this.name_ = name;
-      this.typeIndex_ = typeIndex;      // number: index into type list
-      this.typeDescriptor_ = typeDescriptor;  // may be null
-      this.locals_ = [];                // {type, name}
-      this.localNames_ = new Map();     // name -> local index
+      this.typeIndex_ = typeIndex;
+      this.typeDescriptor_ = typeDescriptor;
+      this.locals_ = [];
+      this.localNames_ = new Map();
       this.bodyInstrs_ = null;
       this.exportName_ = null;
     }
 
-    // Declare a local; params occupy indices 0..nparams-1 first.
+    /* --- add local after params --- */
     AddLocal(type, name) {
       return GuardPublic_(this.builder_, () => this.AddLocal_(type, name), this);
     }
@@ -4167,6 +3970,7 @@
       return index;
     }
 
+    /* --- set function body --- */
     Body(instrs) {
       return GuardPublic_(this.builder_, () => this.Body_(instrs), this);
     }
@@ -4174,12 +3978,12 @@
       assert(Array.isArray(instrs), 'Body() expects an array of instructions, got ' + Inspect_(instrs));
       assert(this.bodyInstrs_ === null, 'Body() may only be called once');
       this.bodyInstrs_ = instrs;
-      // Remember where this body was declared so errors can point at it.
       this.definitionStack_ = new Error().stack;
       this.definitionFrame_ = FirstTestFrame_(this.definitionStack_);
       return this;
     }
 
+    /* --- export this function --- */
     ExportAs(exportName) {
       return GuardPublic_(this.builder_, () => this.ExportAs_(exportName), this);
     }
@@ -4191,7 +3995,7 @@
       return this;
     }
 
-    // Resolve a local reference (number = raw index, string = name).
+    /* --- resolve local by index or name --- */
     ResolveLocal(ref) {
       if (typeof ref === 'number') {
         assert(Number.isInteger(ref) && ref >= 0,
@@ -4209,32 +4013,30 @@
 
   }
 
-  // Module builder
+  /* --- module builder --- */
   class WasmModuleBuilder {
     constructor() {
-      this.types_ = [];         // {params: [...], results: [...]}
+      this.types_ = [];
       this.typeKeys_ = new Map();
-      this.funcImports_ = [];   // {module, name, type}  type = index
-      this.funcDefs_ = [];      // WasmFunctionBuilder
-      this.funcNames_ = new Map();     // name -> {isImport, indexInSpace}
-      this.tableImports_ = [];  // {module, name, element, initial, maximum, addressType}
+      this.funcImports_ = [];
+      this.funcDefs_ = [];
+      this.funcNames_ = new Map();
+      this.tableImports_ = [];
       this.tableDefs_ = [];
-      this.memImports_ = [];    // {module, name, initial, maximum, shared, addressType}
+      this.memImports_ = [];
       this.memDefs_ = [];
-      this.globalImports_ = []; // {module, name, type, mutable}
-      this.globalDefs_ = [];    // {type, mutable, init}
-      this.tagImports_ = [];    // {module, name, type}
-      this.tagDefs_ = [];       // {type}
-      this.elems_ = [];         // elem segment descriptions
-      this.datas_ = [];         // data segment descriptions
-      this.exports_ = [];       // {name, kind, ref}  ref resolved at encode
-      this.firstError_ = null;  // first user error, reported by Encode()
-      this.failFn_ = undefined; // no-op function builder after AddFunction fails
+      this.globalImports_ = [];
+      this.globalDefs_ = [];
+      this.tagImports_ = [];
+      this.tagDefs_ = [];
+      this.elems_ = [];
+      this.datas_ = [];
+      this.exports_ = [];
+      this.firstError_ = null;
+      this.failFn_ = undefined;
     }
 
-    // Types
-    // Dedup key for type descriptors, kind is folded in so func and struct
-    // types never collide even with similar JSON shapes.
+    /* --- type dedup key --- */
     TypeKey_(desc) {
       if (desc.kind === 'struct' || desc.kind === 'array') {
         return JSON.stringify([desc.kind, desc.fields || desc.element,
@@ -4244,12 +4046,7 @@
         desc.supertype, desc.final]);
     }
 
-    // Register a type descriptor and return its index. Forms:
-    //   {params, results}                     function type
-    //   {kind: 'struct', fields: [...]}       struct type
-    //   {kind: 'array', element: {...}}       array type
-    // All accept {supertype} and {final: false}. Bare types are implicitly
-    // final: a type is only extensible with the 'sub' prefix.
+    /* --- add type descriptor and return index --- */
     AddType(desc) {
       return GuardPublic_(this, () => this.AddType_(desc), 0);
     }
@@ -4307,7 +4104,7 @@
       };
     }
 
-    // Resolve a type reference: index, or auto-add a descriptor.
+    /* --- resolve type ref number or descriptor --- */
     ResolveTypeRef(ref) {
       if (typeof ref === 'number') {
         assert(Number.isInteger(ref) && ref >= 0 && ref < this.types_.length,
@@ -4321,7 +4118,6 @@
       throw new CompilationFailed('cannot resolve type: ' + String(ref));
     }
 
-    // Ensure a function type exists and return its index.
     EnsureFuncType(desc) {
       return this.AddType_(desc);
     }
@@ -4334,8 +4130,7 @@
       return this.FuncType_(fnBuilder.typeIndex_).params;
     }
 
-    // Functions
-    // name: optional, unique. type: index or {params, results}.
+    /* --- add function --- */
     AddFunction(name, type) {
       return GuardPublic_(this, () => this.AddFunction_(name, type), this.FailFunctionBuilder_());
     }
@@ -4353,6 +4148,7 @@
       return fn;
     }
 
+    /* --- add import --- */
     AddImport(moduleName, fieldName, kindOrDesc, desc) {
       return GuardPublic_(this, () => this.AddImport_(moduleName, fieldName, kindOrDesc, desc), 0);
     }
@@ -4374,7 +4170,7 @@
           const typeIndex = this.ResolveTypeRef(desc.type);
           this.funcImports_.push({ module: moduleName, name: fieldName, type: typeIndex });
           this.funcNames_.set(fieldName, { isImport: true });
-          return this.funcImports_.length - 1;  // import relative index
+          return this.funcImports_.length - 1;
         }
         case 'table': {
           CheckAddressType_(desc, 'table import');
@@ -4426,7 +4222,7 @@
       }
     }
 
-    // Tables
+    /* --- add table --- */
     AddTable(descOrElement, initial, maximum) {
       return GuardPublic_(this, () => this.AddTable_(descOrElement, initial, maximum), 0);
     }
@@ -4450,7 +4246,7 @@
       return this.tableImports_.length + this.tableDefs_.length - 1;
     }
 
-    // Memories
+    /* --- add memory --- */
     AddMemory(descOrInitial, maximum) {
       return GuardPublic_(this, () => this.AddMemory_(descOrInitial, maximum), 0);
     }
@@ -4474,7 +4270,7 @@
       return this.memImports_.length + this.memDefs_.length - 1;
     }
 
-    // Globals
+    /* --- add global --- */
     AddGlobal(type, initValue, mutable) {
       return GuardPublic_(this, () => this.AddGlobal_(type, initValue, mutable), 0);
     }
@@ -4486,7 +4282,7 @@
       return this.globalImports_.length + this.globalDefs_.length - 1;
     }
 
-    // Tags (exception handling)
+    /* --- add tag --- */
     AddTag(type) {
       return GuardPublic_(this, () => this.AddTag_(type), 0);
     }
@@ -4496,7 +4292,7 @@
       return this.tagImports_.length + this.tagDefs_.length - 1;
     }
 
-    // Element segments (indices or exprs form; active/passive/declared).
+    /* --- add element segment --- */
     AddElemSegment(desc) {
       return GuardPublic_(this, () => this.AddElemSegment_(desc), 0);
     }
@@ -4513,7 +4309,7 @@
       return this.elems_.length - 1;
     }
 
-    // Data segments
+    /* --- add data segment --- */
     AddDataSegment(descOrOffset, data) {
       return GuardPublic_(this, () => this.AddDataSegment_(descOrOffset, data), 0);
     }
@@ -4532,8 +4328,7 @@
       return this.datas_.length - 1;
     }
 
-    // Exports
-    // Export a function by name, builder, or explicit index.
+    /* --- export functions --- */
     ExportFunction(refOrName, exportName) {
       return GuardPublic_(this, () => this.ExportFunction_(refOrName, exportName), this);
     }
@@ -4557,6 +4352,7 @@
       return this;
     }
 
+    /* --- export table --- */
     ExportTable(refOrName, exportName) {
       return GuardPublic_(this, () => this.ExportTable_(refOrName, exportName), this);
     }
@@ -4569,6 +4365,7 @@
       return this;
     }
 
+    /* --- export memory --- */
     ExportMemory(refOrName, exportName) {
       return GuardPublic_(this, () => this.ExportMemory_(refOrName, exportName), this);
     }
@@ -4581,6 +4378,7 @@
       return this;
     }
 
+    /* --- export global --- */
     ExportGlobal(refOrName, exportName) {
       return GuardPublic_(this, () => this.ExportGlobal_(refOrName, exportName), this);
     }
@@ -4593,6 +4391,7 @@
       return this;
     }
 
+    /* --- export tag --- */
     ExportTag(refOrName, exportName) {
       return GuardPublic_(this, () => this.ExportTag_(refOrName, exportName), this);
     }
@@ -4605,15 +4404,14 @@
       return this;
     }
 
-    // Remembers the first user error so Encode() can report it cleanly.
+    /* --- remember first user error --- */
     RecordError_(e) {
       if (this.firstError_ === null) {
         this.firstError_ = e;
       }
     }
 
-    // A function builder that absorbs chained calls after AddFunction
-    // failed, so the fluent chain does not crash mid-build.
+    /* --- placeholder builder after add function fails --- */
     FailFunctionBuilder_() {
       if (this.failFn_ === undefined) {
         this.failFn_ = {
@@ -4635,10 +4433,8 @@
       this.exports_.push({ name, kind, ref });
     }
 
-    // Encoding
-    // Resolve a reference in an index space.
+    /* --- resolve ref in index space --- */
     ResolveIndex_(imports, defs, ref, spaceName, isFuncSpace) {
-      // imports: array of entries; defs: array of entries or builders.
       if (typeof ref === 'number') {
         assert(Number.isInteger(ref) && ref >= 0 &&
           ref < imports.length + defs.length,
@@ -4646,7 +4442,6 @@
         return ref;
       }
       if (typeof ref === 'string') {
-        // Imports by field name in every space; function defs by declared name.
         for (let i = 0; i < imports.length; i++) {
           if (imports[i].name === ref) {
             return i;
@@ -4673,15 +4468,13 @@
       return this.ResolveIndex_(this.funcImports_, this.funcDefs_, ref, 'function', true);
     }
 
-    // Valid ref.func targets: every exported function and every function in
-    // an element segment.
+    /* --- functions usable with ref.func --- */
     DeclaredFuncIndices_() {
       const set = new Set();
       const Add = (ref) => {
         try {
           set.add(this.ResolveFunc(ref));
         } catch (e) {
-          // Unresolvable refs are reported elsewhere during encoding.
         }
       };
       const exportList = this.exports_.slice();
@@ -4705,7 +4498,6 @@
       return set;
     }
 
-    // Whether a function index is a valid ref.func target.
     IsFuncDeclared(funcIdx) {
       return this.DeclaredFuncIndices_().has(funcIdx);
     }
@@ -4726,7 +4518,7 @@
       return this.ResolveIndex_(this.tagImports_, this.tagDefs_, ref, 'tag', false);
     }
 
-    // Tag type descriptor by resolved index.
+    /* --- tag type by index --- */
     TagTypeAt(idx) {
       const imports = this.tagImports_;
       const defs = this.tagDefs_;
@@ -4748,7 +4540,7 @@
       throw new CompilationFailed('cannot resolve elem segment reference');
     }
 
-    // Table element type by resolved index, or undefined.
+    /* --- table element type by index --- */
     TableEntryElement_(idx) {
       if (idx < this.tableImports_.length) {
         return this.tableImports_[idx].element;
@@ -4759,8 +4551,7 @@
       return undefined;
     }
 
-    // True if a table holds typed funcrefs ((ref null? $t), $t a func type).
-    // Such tables need the explicit reftype (flag 6), not flag 4.
+    /* --- true if table holds typed funcrefs --- */
     IsTypedFuncrefTable_(idx) {
       const elem = this.TableEntryElement_(idx);
       if (!IsPlainObject(elem)) return false;
@@ -4818,7 +4609,7 @@
       return this.elems_.length;
     }
 
-    // Memory index from a load/store instruction's args, default 0.
+    /* --- memory index from memarg args --- */
     MemargMemIndex(args) {
       if (args.length === 0) return 0;
       if (Array.isArray(args[0])) {
@@ -4827,7 +4618,7 @@
       return args.length > 2 ? args[2] : 0;
     }
 
-    // Address type ('i32' or 'i64') of a memory reference.
+    /* --- address type of memory --- */
     MemoryAddressType(ref) {
       const idx = this.ResolveMemory(ref);
       const imports = this.memImports_;
@@ -4836,7 +4627,7 @@
       return entry.addressType || 'i32';
     }
 
-    // Global entry by resolved index (for the stack checker).
+    /* --- global entry by index --- */
     GlobalAt(idx) {
       const imports = this.globalImports_;
       const defs = this.globalDefs_;
@@ -4845,7 +4636,7 @@
       return null;
     }
 
-    // Type index of a function by its resolved index.
+    /* --- type index of function by index --- */
     FuncTypeIdxForIndex_(funcIdx) {
       const imports = this.funcImports_;
       const defs = this.funcDefs_;
@@ -4856,11 +4647,11 @@
       assert(false, 'function index ' + funcIdx + ' out of range');
     }
 
-    // Check if a name is one of the LOAD_STORE memory ops.
     IsLoadStoreName_(name) {
       return Object.prototype.hasOwnProperty.call(LOAD_STORE, name);
     }
 
+    /* --- make encoding context --- */
     MakeCtx_(fnBuilder) {
       const self = this;
       return {
@@ -4894,8 +4685,7 @@
       };
     }
 
-    // Encode a constant expression (literal, ref.null, ref.func, or instrs).
-    // The terminating 'end' is always appended.
+    /* --- encode constant expression --- */
     EncodeInitExpr_(init, type, ctx) {
       const w = new Writer();
       const tmp = new Writer();
@@ -4922,7 +4712,6 @@
           throw new CompilationFailed('cannot build literal init for type ' + type);
         }
       } else if (init === null || typeof init === 'string') {
-        // ref.null of the given/derived heap type.
         const heap = (typeof init === 'string')
           ? init
           : this.HeapTypeForType_(type);
@@ -4932,19 +4721,18 @@
         tmp.WriteU8(OP.RefFunc);
         tmp.WriteU32LEB(this.ResolveFunc(init.ref));
       } else if (Array.isArray(init)) {
-        // Instruction list (e.g. [["global.get", 0]]).
         const enc = new InstrEncoder(this);
         const ew = enc.Encode(init, ctx, { initialDepth: 0, finalEnd: false });
         tmp.bytes_.push.apply(tmp.bytes_, ew.bytes_);
       } else {
         throw new CompilationFailed('cannot encode init expression: ' + String(init));
       }
-      // Terminating 'end' for the constant expression.
       tmp.WriteU8(OP.End);
       w.bytes_.push.apply(w.bytes_, tmp.bytes_);
       return w;
     }
 
+    /* --- heap type from value type --- */
     HeapTypeForType_(type) {
       if (typeof type === 'string') {
         const norm = (type === 'funcref') ? 'func' :
@@ -4963,8 +4751,7 @@
       return 'any';
     }
 
-    // Write one type def: optional sub prefix + supertype list, then the
-    // concrete form. A bare type is implicitly final (no sub prefix).
+    /* --- write one type definition --- */
     WriteTypeDef_(www, t) {
       const hasSub = (t.supertype !== undefined && t.supertype !== null) ||
         t.final === false;
@@ -4974,7 +4761,7 @@
         if (t.supertype !== undefined && t.supertype !== null) {
           supers.push(this.ResolveTypeRef(t.supertype));
         }
-        www.WriteVector(supers.length, (x, j) => x.WriteU32LEB(supers[j]));
+        www.WriteVector(supers.length, (x, j) => x.WriteU32LEB(supers[j])));
       }
       if (t.kind === 'struct') {
         www.WriteU8(STRUCT_FORM);
@@ -4986,7 +4773,6 @@
       }
       if (t.kind === 'array') {
         www.WriteU8(ARRAY_FORM);
-        // An array type holds exactly one field (no field count).
         assert(t.element && t.element.type !== undefined,
           'array type: missing element');
         www.WriteValueType(t.element.type);
@@ -4998,6 +4784,7 @@
       www.WriteVector(t.results.length, (x, j) => x.WriteValueType(t.results[j]));
     }
 
+    /* --- collect implicit types from bodies --- */
     CollectImplicitTypes_() {
       const self = this;
       const Walk = (instrs) => {
@@ -5031,10 +4818,8 @@
       }
     }
 
+    /* --- encode whole module --- */
     Encode() {
-      // Error recorded by the public API is reported and stops the
-      // build (undefined). Unexpected builder errors propagate unchanged,
-      // preserving the original exception and its real stack.
       if (this.firstError_ !== null) {
         ReportCompilationFailed_(this.firstError_);
         StopAfterFailure_();
@@ -5048,27 +4833,20 @@
             e.context = this.Summary();
           }
           if (e.code === 'internal') {
-            // @BD, the builder failed to validate something it
-            // should have caught. Surface it, never swallow it.
             throw e;
           }
-          // Invalid module report it cleanly and stop. Returning
-          // undefined means the host never sees an uncaught exception.
           ReportCompilationFailed_(e);
           StopAfterFailure_();
           return undefined;
         }
-        // Unexpected builder failure: never manufacture a new error around
-        // an existing one. Propagate the original exception and stack.
         throw e;
       }
     }
 
+    /* --- internal encoding --- */
     EncodeInternal_() {
-      // Prepass: materialize implicitly referenced function types.
       this.CollectImplicitTypes_();
 
-      // Resolved index maps (imports first, then definitions).
       const funcIndex = (ref) => this.ResolveFunc(ref);
       const tableIndex = (ref) => this.ResolveTable(ref);
       const memIndex = (ref) => this.ResolveMemory(ref);
@@ -5076,18 +4854,14 @@
       const tagIndex = (ref) => this.ResolveTag(ref);
 
       const w = new Writer();
-      w.WriteBytes([0x00, 0x61, 0x73, 0x6d]);  // magic: \0asm
-      w.WriteBytes([0x01, 0x00, 0x00, 0x00]);  // version 1
+      w.WriteBytes([0x00, 0x61, 0x73, 0x6d]);
+      w.WriteBytes([0x01, 0x00, 0x00, 0x00]);
 
       const enc = new InstrEncoder(this);
 
-      // Type section.
-      // Each type entry is a rectype, a bare subtype (implicit rec group of
-      // one) or a 0x4e rec group spanning consecutive rec subtypes. The outer
-      // vec count is the number of rectypes, not subtypes.
+      /* --- type section --- */
       if (this.types_.length > 0) {
         w.WriteSection(SECT.TYPE, (ww) => {
-          // First pass count rectypes so we can write the outer vec count.
           let rectypeCount = 0;
           let i = 0;
           while (i < this.types_.length) {
@@ -5101,7 +4875,6 @@
             }
           }
           ww.WriteU32LEB(rectypeCount);
-          // Second pass write each rectype.
           i = 0;
           while (i < this.types_.length) {
             if (this.types_[i].rec) {
@@ -5122,16 +4895,13 @@
         });
       }
 
-      // Import section.
+      /* --- import section --- */
       const numImports = this.funcImports_.length + this.tableImports_.length +
         this.memImports_.length + this.globalImports_.length +
         this.tagImports_.length;
       if (numImports > 0) {
         w.WriteSection(SECT.IMPORT, (ww) => {
-          // Count and entries are written once, in a single loop.
           ww.WriteU32LEB(numImports);
-          // Order: functions, tables, memories, globals, tags (matches the
-          // index space ordering used by resolve*()).
           const writeEntry = (imp, kindByte, descWriter) => {
             ww.WriteString(imp.module);
             ww.WriteString(imp.name);
@@ -5170,14 +4940,14 @@
           }
           for (const imp of this.tagImports_) {
             writeEntry(imp, KIND.TAG, (x) => {
-              x.WriteU8(0x00);  // tag attribute: exception
+              x.WriteU8(0x00);
               x.WriteU32LEB(imp.type);
             });
           }
         });
       }
 
-      // Function section.
+      /* --- function section --- */
       if (this.funcDefs_.length > 0) {
         w.WriteSection(SECT.FUNCTION, (ww) => {
           ww.WriteVector(this.funcDefs_.length, (www, i) => {
@@ -5186,7 +4956,7 @@
         });
       }
 
-      // Table section.
+      /* --- table section --- */
       if (this.tableDefs_.length > 0) {
         w.WriteSection(SECT.TABLE, (ww) => {
           ww.WriteVector(this.tableDefs_.length, (www, i) => {
@@ -5202,7 +4972,7 @@
         });
       }
 
-      // Memory section.
+      /* --- memory section --- */
       if (this.memDefs_.length > 0) {
         w.WriteSection(SECT.MEMORY, (ww) => {
           ww.WriteVector(this.memDefs_.length, (www, i) => {
@@ -5217,17 +4987,17 @@
         });
       }
 
-      // Tag section. The engine expects it between memory and global.
+      /* --- tag section --- */
       if (this.tagDefs_.length > 0) {
         w.WriteSection(SECT.TAG, (ww) => {
           ww.WriteVector(this.tagDefs_.length, (www, i) => {
-            www.WriteU8(0x00);  // tag attribute: exception
+            www.WriteU8(0x00);
             www.WriteU32LEB(this.tagDefs_[i].type);
           });
         });
       }
 
-      // Global section.
+      /* --- global section --- */
       if (this.globalDefs_.length > 0) {
         const globalCtx = this.MakeCtx_(null);
         w.WriteSection(SECT.GLOBAL, (ww) => {
@@ -5247,8 +5017,7 @@
         });
       }
 
-      // Export section.
-      // Merge explicit exports with per-function ExportAs() declarations.
+      /* --- export section --- */
       const exportList = this.exports_.slice();
       for (const fn of this.funcDefs_) {
         if (fn.exportName_ !== null) {
@@ -5277,7 +5046,7 @@
         });
       }
 
-      // Elem section.
+      /* --- elem section --- */
       if (this.elems_.length > 0) {
         const elemCtx = this.MakeCtx_(null);
         w.WriteSection(SECT.ELEM, (ww) => {
@@ -5286,8 +5055,6 @@
             const isExpr = e.exprs !== undefined;
             const active = !e.passive && !e.declared;
             const tableIdx = active ? (e.table === undefined ? 0 : tableIndex(e.table)) : 0;
-            // Derive the element type from the target table when not given;
-            // an explicit mismatch would Fail at engine decode time.
             let elementType = e.element;
             if (elementType === undefined || elementType === null) {
               elementType = this.TableEntryElement_(tableIdx);
@@ -5314,9 +5081,6 @@
             }
             let flags;
             if (isExpr) {
-              // Flag 4 carries no reftype (implicitly (ref null func));
-              // flags 5/6/7 carry an explicit reftype. Flag 6 layout is
-              // tableidx, offset expr, reftype, exprs.
               const typedTable = active && this.IsTypedFuncrefTable_(tableIdx);
               if (e.passive) {
                 flags = 5;
@@ -5352,7 +5116,7 @@
               });
             } else {
               if (flags === 1 || flags === 3) {
-                www.WriteU8(0x00);  // elemkind: func
+                www.WriteU8(0x00);
               }
               if (flags === 0 || flags === 2) {
                 const ow = this.EncodeInitExpr_(e.offset, 'i32', elemCtx);
@@ -5368,7 +5132,7 @@
         });
       }
 
-      // DataCount section.
+      /* --- datacount section --- */
       const usesDataCount = this.datas_.length > 0;
       if (usesDataCount) {
         w.WriteSection(SECT.DATACOUNT, (ww) => {
@@ -5376,7 +5140,7 @@
         });
       }
 
-      // Code section.
+      /* --- code section --- */
       if (this.funcDefs_.length > 0) {
         w.WriteSection(SECT.CODE, (ww) => {
           ww.WriteVector(this.funcDefs_.length, (www, i) => {
@@ -5385,7 +5149,7 @@
               'function "' + (fn.name_ || i) + '" has no body; call Body() first');
             const bodyWriter = new Writer();
 
-            // Locals: group consecutive same typed locals.
+            /* --- group locals by type --- */
             const localGroups = [];
             for (const loc of fn.locals_) {
               const last = localGroups[localGroups.length - 1];
@@ -5400,7 +5164,7 @@
               x.WriteValueType(localGroups[j].type);
             });
 
-            // Stack type check.
+            /* --- stack type check --- */
             const checker = new CompilationChecker(this);
             if (!checker.Check(fn, fn.bodyInstrs_)) {
               const msg = checker.ErrorMessage();
@@ -5413,14 +5177,13 @@
               });
             }
 
-            // Body instructions.
+            /* --- encode body --- */
             const ctx = this.MakeCtx_(fn);
             let ew;
             try {
               ew = enc.Encode(fn.bodyInstrs_, ctx, { initialDepth: 1, finalEnd: true });
             } catch (e) {
               if (e instanceof CompilationFailed) {
-                // Attribute the error to the function being encoded.
                 throw new CompilationFailed(
                   'function "' + (fn.name_ || i) + '":\n' + e.message, {
                     code: e.code || 'compilation-failed',
@@ -5446,7 +5209,7 @@
         });
       }
 
-      // Data section.
+      /* --- data section --- */
       if (this.datas_.length > 0) {
         const dataCtx = this.MakeCtx_(null);
         w.WriteSection(SECT.DATA, (ww) => {
@@ -5485,10 +5248,10 @@
       return w.Result();
     }
 
-    // Inspection helpers
+    /* --- hex dump of encoded module --- */
     Hex() {
       const bytes = this.Encode();
-      if (bytes === undefined) return null;   // compilation failure reported
+      if (bytes === undefined) return null;
       let out = '';
       for (let i = 0; i < bytes.length; i++) {
         out += bytes[i].toString(16).padStart(2, '0');
@@ -5496,26 +5259,28 @@
       return out;
     }
 
-    // Run the encoded bytes through the engine. The engine's own rejection
-    // error surfaces raw, never wrapped  a rejection here means the
-    // builder emitted a bad module, a bug in the builder (or might be in the engine).
+    /* --- compile with webassembly module --- */
     Compile() {
       if (typeof WebAssembly === 'undefined' ||
         typeof WebAssembly.Module !== 'function') {
         throw new Error('WebAssembly.Module is not available');
       }
       const bytes = this.Encode();
+      if (bytes === undefined) return undefined;
       if (!(bytes instanceof Uint8Array)) {
         throw new TypeError('Encode() did not return Uint8Array');
       }
       return new WebAssembly.Module(bytes);
     }
 
-    // Compile, then instantiate with the import object.
+    /* --- compile and instantiate --- */
     Instantiate(imports) {
-      return new WebAssembly.Instance(this.Compile(), imports || {});
+      const mod = this.Compile();
+      if (mod === undefined) return undefined;
+      return new WebAssembly.Instance(mod, imports || {});
     }
 
+    /* --- module summary --- */
     Summary() {
       return {
         types: this.types_.length,
@@ -5539,11 +5304,7 @@
   global.WasmModuleBuilder = WasmModuleBuilder;
   global.CompilationFailed = CompilationFailed;
 
-  // Location of this builder block's end in its own file, captured at
-  // load time. When the builder is pasted inline into a page (browser),
-  // every frame inside the block has line <= this and the test code,
-  // pasted after the block, has larger lines  so internal frames can be
-  // told apart even though they share one file name.
+  /* --- builder location for stack filtering --- */
   const BUILDER_LOC_ = (function () {
     try {
       const fr = FrameLocation_(String(new Error().stack).split('\n')[1] || '');
@@ -5555,5 +5316,3 @@
 })(typeof globalThis !== 'undefined' ? globalThis :
   typeof self !== 'undefined' ? self :
     typeof window !== 'undefined' ? window : this);
-
-
