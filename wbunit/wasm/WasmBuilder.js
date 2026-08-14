@@ -1,8 +1,6 @@
 'use strict';
 
 (function (global) {
-
-
   function AttributeFrame_(e, frame) {
     if (e instanceof StackCheckError) {
       return new StackCheckError(e.message, {
@@ -15,9 +13,10 @@
     return e;
   }
 
-  // Error categories. Validation has one face: the stack checker.
-  // 'internal' is a bug detector, not a validation category: if it ever
-  // shows up, something is wrong inside the builder itself.
+  // Error categories.
+  // Validation has one face, the StackChecker.
+  // 'internal' is a bug detector, not a validation category. 
+  //  if it ever shows up, something is wrong inside the builder itself.
   const CATEGORY = {
     'stack-check': 'StackCheck',
     'internal': 'InternalError',
@@ -43,13 +42,13 @@
 
   function assert(cond, msg) {
     if (!cond) {
-      // Every validation failure is a stackcheck finding: the builder
-      // rejected the module before the host engine ever sees it.
+      // Every validation failure is a stackcheck finding, the builder
+      // rejected the module before the host JS engine ever sees it.
       throw new StackCheckError(msg, { code: 'stack-check' });
     }
   }
 
-  // Strict bounds check error. A bad index is a validation failure
+  // Strict bounds checking, a bad index is a validation failure
   // and is reported as StackCheck, never as an internal error obviously.
   class CHECK_EQ extends StackCheckError {
     constructor(msg) {
@@ -57,11 +56,19 @@
     }
   }
 
+  // Reads a whole file. The SpiderMonkey shell provides read(); the
+  // Firefox browser has no synchronous file reader, so callers that want
+  // to degrade gracefully must catch.
+  function ReadFile_(file) {
+    if (typeof read === 'function') return String(read(file));
+    throw new Error('no file reader available');
+  }
+
   // Returns one source line for the stack report when the file can be read.
   function SourceLine_(file, lineNo) {
-    if (typeof read !== 'function' || !file || file === '-e') return null;
+    if (!file || file === '-e') return null;
     try {
-      const lines = String(read(file)).split('\n');
+      const lines = ReadFile_(file).split('\n');
       const i = Number(lineNo) - 1;
       return (i >= 0 && i < lines.length) ? lines[i] : null;
     } catch (ex) {
@@ -69,15 +76,49 @@
     }
   }
 
-  // First stack frame that is not inside this file.
+  // Parses one stack trace line into { file, line, col, fn } when it
+  // carries a location, else null. Handles the SpiderMonkey shell and
+  // Firefox browser format (fn@file:line:col or file:line:col). fn is
+  // null for frames without a function name.
+  function FrameLocation_(loc) {
+    const s = String(loc).trim();
+    if (s.length === 0) return null;
+    const at = s.lastIndexOf('@');
+    const rest = (at >= 0) ? s.slice(at + 1) : s;
+    const m = /^(.*):(\d+):(\d+)$/.exec(rest);
+    if (m) {
+      return {
+        file: m[1],
+        line: Number(m[2]),
+        col: Number(m[3]),
+        fn: (at >= 0) ? s.slice(0, at) : null,
+      };
+    }
+    return null;
+  }
+
+  // True when the frame belongs to this builder's own code. The file
+  // name filter covers the normal case (WasmBuilder.js loaded as its own
+  // file); the `BUILDER_LOC_ line` boundary covers the browser case where
+  // the builder is pasted inline and every frame names the page file
+  // the function name filter covers stragglers in either layout.
+  function IsInternalFrame_(fr) {
+    if (!fr) return false;
+    if (fr.file && String(fr.file).indexOf('WasmBuilder.js') >= 0) return true;
+    if (BUILDER_LOC_ && fr.file === BUILDER_LOC_.file &&
+      fr.line <= BUILDER_LOC_.line) return true;
+    if (!fr.fn) return false;
+    const name = String(fr.fn).replace(/^.*\./, '');
+    return name === 'FirstTestFrame_' || name === 'FormatError';
+  }
+
+  // First stack frame that is not inside this builder.
   function FirstTestFrame_(stack) {
     for (const line of String(stack).split('\n')) {
       const loc = line.trim();
-      if (loc.length === 0 || loc.indexOf('WasmBuilder.js') >= 0) continue;
-      const at = loc.lastIndexOf('@');
-      const rest = (at >= 0) ? loc.slice(at + 1) : loc;
-      const m = /^(.*):(\d+):(\d+)$/.exec(rest);
-      if (m) return { file: m[1], line: Number(m[2]), col: Number(m[3]) };
+      if (loc.length === 0) continue;
+      const fr = FrameLocation_(loc);
+      if (fr && !IsInternalFrame_(fr)) return fr;
     }
     return null;
   }
@@ -113,11 +154,9 @@
   // Finds the source line of the failing instruction after the Body call.
   // Returns null when not found.
   function LocateInstruction_(file, frameLine, instr, occurrence) {
-    if (typeof read !== 'function' || !file || file === '-e' || instr === undefined) {
-      return null;
-    }
+    if (!file || file === '-e' || instr === undefined) return null;
     try {
-      const lines = String(read(file)).split('\n');
+      const lines = ReadFile_(file).split('\n');
       const key = InstrKey_(instr);
       const opStr = String(Array.isArray(instr) ? instr[0] : instr);
       if (key.length < 2 || opStr.length === 0) return null;
@@ -132,7 +171,8 @@
           return { file, line: i + 1, col: CaretCol_(lines[i], instr) };
         }
       }
-      // Fallback: the first line with the op name.
+      // Fallback:
+      // the first line with the op name.
       for (let i = frameLine - 1; i < limit; i++) {
         const c = lines[i].indexOf(opStr);
         if (c >= 0) return { file, line: i + 1, col: c + 1 };
@@ -141,7 +181,7 @@
     return null;
   }
 
-  // Caret column, one-based. Under the first argument when present,
+  // Caret column, one based. Under the first argument when present,
   // otherwise under the op name.
   function CaretCol_(line, instr) {
     const opStr = String(Array.isArray(instr) ? instr[0] : instr);
@@ -184,7 +224,8 @@
       typeof global !== 'undefined' && global.WB_VERBOSE === true;
     const frames = [];
     if (e && e.definitionFrame) {
-      // Builder failure. Point at the line that declared the bad body.
+      // Builder failure.
+      // Point at the line that declared the bad body.
       const df = e.definitionFrame;
       const hit = LocateInstruction_(df.file, df.line, e.instruction, e.instructionOccurrence);
       PushSourceFrame_(frames, hit ? hit.file : df.file,
@@ -201,19 +242,16 @@
       for (const line of String(raw).split('\n')) {
         const loc = line.trim();
         if (loc.length === 0) continue;
-        if (!verbose && frames.length > 0) break;  // only the innermost frame.
-        if (!verbose && loc.indexOf('WasmBuilder.js') >= 0) {
+        if (verbose) {
+          frames.push(loc);            // verbose the full raw trace.
           continue;
         }
-        // Frame shape: file:line:col, with an optional function name.
-        const at = loc.lastIndexOf('@');
-        const rest = (at >= 0) ? loc.slice(at + 1) : loc;
-        const m = /^(.*):(\d+):(\d+)$/.exec(rest);
-        if (!m) {
-          frames.push(loc);
-          continue;
-        }
-        PushSourceFrame_(frames, m[1], Number(m[2]));
+        // Frame shape
+        // file:line:col, with an optional function name.
+        const fr = FrameLocation_(loc);
+        if (!fr || IsInternalFrame_(fr)) continue;
+        PushSourceFrame_(frames, fr.file, fr.line);
+        break;                         // only the innermost frame.
       }
     }
     if (verbose && e && e.cause !== undefined && e.cause !== null) {
@@ -226,108 +264,7 @@
     return out;
   }
 
-  
-  let failures = 0;
-
-  function Fail(label) {
-    failures++;
-    print('failed: ' + label);
-  }
-
-  function Check(cond, label) {
-    if (!cond) {
-      Fail(label + CheckSource_());
-      return false;
-    }
-    return true;
-  }
-
-  // The test file line of the failing check.
-  function CheckSource_() {
-    try {
-      const st = new Error().stack;
-      for (const line of String(st).split('\n')) {
-        const loc = line.trim();
-        if (loc.length === 0 || loc.indexOf('WasmBuilder.js') >= 0) continue;
-        const at = loc.lastIndexOf('@');
-        const rest = (at >= 0) ? loc.slice(at + 1) : loc;
-        const m = /^(.*):(\d+):(\d+)$/.exec(rest);
-        if (!m || typeof read !== 'function') return '';
-        const src = String(read(m[1])).split('\n')[Number(m[2]) - 1];
-        if (src === undefined) return '';
-        return '\n  ' + m[1] + ':' + m[2] + '  ' + src;
-      }
-    } catch (e) {}
-    return '';
-  }
-
-  function CheckThrows(fn, label) {
-    try {
-      fn();
-    } catch (e) {
-      return e;
-    }
-    Fail(label + ': no exception thrown');
-    return null;
-  }
-
-  function ErrorName(e) {
-    if (e === null) return 'null';
-    if (e === undefined) return 'undefined';
-    if (typeof e === 'object' || typeof e === 'function') {
-      if (e.code !== undefined) return String(e.code);
-      if (e.name !== undefined) return String(e.name);
-      if (e.constructor && e.constructor.name) {
-        return String(e.constructor.name);
-      }
-    }
-    return String(e);
-  }
-
-  function ExpectError(code, fn) {
-    let error;
-    try {
-      fn();
-    } catch (e) {
-      error = e;
-    }
-    if (error === undefined) {
-      Fail('expected error ' + code + ', none thrown');
-      return null;
-    }
-    const got = ErrorName(error);
-    if (got !== String(code)) {
-      Fail('expected error ' + code + ', got ' + got);
-      return error;
-    }
-    return error;
-  }
-
-  function ExpectInstanceOf(type, fn, label) {
-    let error;
-    try {
-      fn();
-    } catch (e) {
-      error = e;
-    }
-    if (error === undefined) {
-      Fail(label + ': no exception thrown');
-      return null;
-    }
-    if (!(error instanceof type)) {
-      Fail(
-        label +
-        ': expected ' +
-        type.name +
-        ', got ' +
-        ErrorName(error)
-      );
-      return error;
-    }
-    return error;
-  }
-
-  // Section ids.
+  // Sec ids.
   const SECT = {
     CUSTOM: 0,
     TYPE: 1,
@@ -373,17 +310,20 @@
     nullexternref: 0x72,
     nullanyref: 0x71,
     nullexnref: 0x74,
-    // Packed field types, only valid inside struct or array fields.
+    // Packed field types,
+    // only valid inside struct or array fields.
     i8: 0x78,
     i16: 0x77,
   };
 
-  // i8 and i16 fields are bytes but act as i32 on the stack.
+  // i8 and i16 fields are bytes
+  // but act as i32 on the stack.
   function FieldStackType(t) {
     return (t === 'i8' || t === 'i16') ? 'i32' : t;
   }
 
-  // Heap types for ref.null and typed refs.
+  // Heap types
+  // for ref.null and typed refs.
   const HEAP = {
     func: 0x70,
     extern: 0x6f,
@@ -648,7 +588,8 @@
     'memory.discard': 0x12,
   };
 
-  // Load and store ops: opcode and byte size.
+  // Load and store ops,
+  // opcode and byte size.
   const LOAD_STORE = {
     'i32.load': { op: 0x28, size: 4 },
     'i64.load': { op: 0x29, size: 8 },
@@ -729,7 +670,8 @@
 
   // SIMD ops after the 0xfd prefix. Each entry is an opcode and a shape
   // that tells the encoder how to write immediates and the checker how to
-  // type the operands:
+  // type the operands,
+  //
   //   L    load: pop addr, push v128
   //   S    store: pop addr, pop v128
   //   LL   lane load: pop addr, pop v128, push v128
@@ -747,6 +689,9 @@
   //   AT   all_true or any_true, v128 to i32
   //   BM   bitmask, v128 to i32
   //   SHF  shift, v128 and i32 to v128
+  //
+
+
   const SIMD = {
     'v128.load': [0x00, 'L', 16],
     'v128.load8x8_s': [0x01, 'L', 8],
@@ -1009,6 +954,7 @@
   //   rconvert   any/extern convert: pop one ref, push the other
   //   ri31       ref.i31: pop i32, push i31 ref
   //   i31get     i31.get_s/u: pop i31 ref, push i32
+  
   const GC = {
     'struct.new': [0x00, 'snew'],
     'struct.new_default': [0x01, 'snewdef'],
@@ -3451,7 +3397,8 @@
         return;
       }
       if (name === 'rethrow') {
-        // Consumes nothing; the target must be a catch handler.
+        // Consumes nothing,
+        // the target must be a catch handler.
         const depth = args[0];
         if (!(Number.isInteger(depth) && depth >= 0 &&
           depth < this.control_.length)) {
@@ -4257,7 +4204,6 @@
       this.elems_ = [];         // elem segment descriptions
       this.datas_ = [];         // data segment descriptions
       this.exports_ = [];       // {name, kind, ref}  ref resolved at encode
-      this.useStackCheck_ = true;  // run the stack type checker by default
     }
 
     // Types
@@ -4826,11 +4772,6 @@
       return Object.prototype.hasOwnProperty.call(LOAD_STORE, name);
     }
 
-    // Turn the stack type checker on/off (on by default).
-    SetStackTypeChecking(on) {
-      this.useStackCheck_ = on;
-    }
-
     MakeCtx_(fnBuilder) {
       const self = this;
       return {
@@ -5358,19 +5299,17 @@
               x.WriteValueType(localGroups[j].type);
             });
 
-            // Stack type check (if enabled).
-            if (this.useStackCheck_) {
-              const checker = new StackTypeChecker(this);
-              if (!checker.Check(fn, fn.bodyInstrs_)) {
-                const msg = checker.ErrorMessage();
-                throw new StackCheckError('function "' + (fn.name_ || i) + '": ' + msg, {
-                  code: 'stack-check',
-                  definitionFrame: fn.definitionFrame_,
-                  instruction: checker.ErrorInstruction_(),
-                  instructionIndex: checker.ErrorInstructionIndex_(),
-                  instructionOccurrence: checker.ErrorOccurrence_(),
-                });
-              }
+            // Stack type check.
+            const checker = new StackTypeChecker(this);
+            if (!checker.Check(fn, fn.bodyInstrs_)) {
+              const msg = checker.ErrorMessage();
+              throw new StackCheckError('function "' + (fn.name_ || i) + '": ' + msg, {
+                code: 'stack-check',
+                definitionFrame: fn.definitionFrame_,
+                instruction: checker.ErrorInstruction_(),
+                instructionIndex: checker.ErrorInstructionIndex_(),
+                instructionOccurrence: checker.ErrorOccurrence_(),
+              });
             }
 
             // Body instructions.
@@ -5461,7 +5400,7 @@
     // module, which is a bug in the builder (or the engine).
     Compile() {
       if (typeof WebAssembly === 'undefined') {
-        throw new Error('WebAssembly is not available in this environment');
+        throw new Error('WebAssembly env is not available.');
       }
       return new WebAssembly.Module(this.Encode());
     }
@@ -5491,30 +5430,25 @@
     }
   }
 
-  // Module export.
-  const api = {
-    WasmModuleBuilder,
-    StackCheckError,
-    FormatError,
-    OP,
-    TYPE,
-    SECT,
-  };
-
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = api;
-  }
-
   global.WasmModuleBuilder = WasmModuleBuilder;
   global.StackCheckError = StackCheckError;
   global.FormatError = FormatError;
-  global.Fail = Fail;
-  global.Check = Check;
-  global.CheckThrows = CheckThrows;
-  global.ExpectError = ExpectError;
-  global.ExpectInstanceOf = ExpectInstanceOf;
+
+  // Location of this builder block's end in its own file, captured at
+  // load time. When the builder is pasted inline into a page (browser),
+  // every frame inside the block has line <= this and the test code,
+  // pasted after the block, has larger lines - so internal frames can be
+  // told apart even though they share one file name.
+  const BUILDER_LOC_ = (function () {
+    try {
+      const fr = FrameLocation_(String(new Error().stack).split('\n')[1] || '');
+      return fr ? { file: fr.file, line: fr.line } : null;
+    } catch (ex) {
+      return null;
+    }
+  })();
 })(typeof globalThis !== 'undefined' ? globalThis :
   typeof self !== 'undefined' ? self :
     typeof window !== 'undefined' ? window : this);
 
-// End of the code..
+
