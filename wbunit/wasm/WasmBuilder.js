@@ -2,9 +2,9 @@
 
 (function (global) {
   function AttributeFrame_(e, frame) {
-    if (e instanceof StackCheckError) {
-      return new StackCheckError(e.message, {
-        code: e.code || 'stack-check',
+    if (e instanceof CompilationFailed) {
+      return new CompilationFailed(e.message, {
+        code: e.code || 'compilation-failed',
         cause: e,
         context: e.context,
         definitionFrame: frame || e.definitionFrame,
@@ -14,18 +14,18 @@
   }
 
   // Error categories.
-  // Validation has one face, the StackChecker.
+  // Validation has one face, the CompilationChecker.
   // 'internal' is a bug detector, not a validation category. 
   //  if it ever shows up, something is wrong inside the builder itself.
   const CATEGORY = {
-    'stack-check': 'StackCheck',
+    'compilation-failed': 'CompilationFailed',
     'internal': 'InternalError',
   };
 
-  class StackCheckError extends Error {
+  class CompilationFailed extends Error {
     constructor(msg, options) {
       super(msg);
-      this.name = CATEGORY[options && options.code] || 'StackCheck';
+      this.name = CATEGORY[options && options.code] || 'CompilationFailed';
       if (options) {
         if (options.code !== undefined) this.code = options.code;
         if (options.cause !== undefined) this.cause = options.cause;
@@ -44,35 +44,42 @@
     if (!cond) {
       // Every validation failure is a stackcheck finding, the builder
       // rejected the module before the host JS engine ever sees it.
-      throw new StackCheckError(msg, { code: 'stack-check' });
+      throw new CompilationFailed(msg, { code: 'compilation-failed' });
     }
   }
 
   // Strict bounds checking, a bad index is a validation failure
-  // and is reported as StackCheck, never as an internal error obviously.
-  class CHECK_EQ extends StackCheckError {
+  // and is reported as CompilationFailed, never as an internal error obviously.
+  class CHECK_EQ extends CompilationFailed {
     constructor(msg) {
-      super(msg, { code: 'stack-check' });
+      super(msg, { code: 'compilation-failed' });
     }
   }
 
-  // Reads a whole file. The SpiderMonkey shell provides read(); the
-  // Firefox browser has no synchronous file reader, so callers that want
-  // to degrade gracefully must catch.
-  function ReadFile_(file) {
-    if (typeof read === 'function') return String(read(file));
-    throw new Error('no file reader available');
+  // Text form of an argument for expected/got messages.
+  function Inspect_(v) {
+    if (v === null) return 'null';
+    if (v === undefined) return 'undefined';
+    if (typeof v === 'string') return "'" + v + "'";
+    if (typeof v === 'object') {
+      try { return JSON.stringify(v); } catch (ex) { return String(v); }
+    }
+    return String(v);
   }
 
-  // Returns one source line for the stack report when the file can be read.
-  function SourceLine_(file, lineNo) {
-    if (!file || file === '-e') return null;
+  // Runs a public builder call. User errors (CompilationFailed) are
+  // recorded on the module and the fallback value is returned, so a bad
+  // testcase never dies mid-build; Encode() reports the first recorded
+  // error. Real builder bugs still propagate.
+  function GuardPublic_(module, fn, fallback) {
     try {
-      const lines = ReadFile_(file).split('\n');
-      const i = Number(lineNo) - 1;
-      return (i >= 0 && i < lines.length) ? lines[i] : null;
-    } catch (ex) {
-      return null;
+      return fn();
+    } catch (e) {
+      if (e instanceof CompilationFailed && e.code !== 'internal') {
+        module.RecordError_(e);
+        return fallback;
+      }
+      throw e;
     }
   }
 
@@ -109,7 +116,7 @@
       fr.line <= BUILDER_LOC_.line) return true;
     if (!fr.fn) return false;
     const name = String(fr.fn).replace(/^.*\./, '');
-    return name === 'FirstTestFrame_' || name === 'FormatError';
+    return name === 'FirstTestFrame_';
   }
 
   // First stack frame that is not inside this builder.
@@ -151,117 +158,67 @@
     return n;
   }
 
-  // Finds the source line of the failing instruction after the Body call.
-  // Returns null when not found.
-  function LocateInstruction_(file, frameLine, instr, occurrence) {
-    if (!file || file === '-e' || instr === undefined) return null;
-    try {
-      const lines = ReadFile_(file).split('\n');
-      const key = InstrKey_(instr);
-      const opStr = String(Array.isArray(instr) ? instr[0] : instr);
-      if (key.length < 2 || opStr.length === 0) return null;
-      const limit = Math.min(lines.length, frameLine + 99);
-      let wanted = Number(occurrence) || 0;
-      for (let i = frameLine - 1; i < limit; i++) {
-        if (InstrKey_(lines[i]).indexOf(key) >= 0) {
-          if (wanted > 0) {
-            wanted--;
-            continue;
-          }
-          return { file, line: i + 1, col: CaretCol_(lines[i], instr) };
-        }
-      }
-      // Fallback:
-      // the first line with the op name.
-      for (let i = frameLine - 1; i < limit; i++) {
-        const c = lines[i].indexOf(opStr);
-        if (c >= 0) return { file, line: i + 1, col: c + 1 };
-      }
-    } catch (ex) {}
-    return null;
+  // Makes a stack frame path relative to the current directory. The shell
+  // stores loaded files with absolute paths; the builder's own location
+  // shares the cwd prefix, so the common prefix is stripped. Paths that
+  // are already relative are returned unchanged.
+  function RelativePath_(p) {
+    const s = String(p).replace(/\\/g, '/');
+    const base = (BUILDER_LOC_ && BUILDER_LOC_.file) ?
+      String(BUILDER_LOC_.file).replace(/\\/g, '/') : '';
+    if (base === '') return s;
+    const a = s.split('/');
+    const b = base.split('/');
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    return (i === 0) ? s : a.slice(i).join('/');
   }
 
-  // Caret column, one based. Under the first argument when present,
-  // otherwise under the op name.
-  function CaretCol_(line, instr) {
-    const opStr = String(Array.isArray(instr) ? instr[0] : instr);
-    const opAt = line.indexOf(opStr);
-    if (opAt < 0) return 1;
-    if (Array.isArray(instr) && instr.length > 1) {
-      let arg = instr[1];
-      if (typeof arg === 'object' && arg !== null) {
-        try { arg = JSON.stringify(arg); } catch (ex) { arg = null; }
-      }
-      if (arg !== null && arg !== undefined) {
-        const at = line.indexOf(String(arg), opAt + opStr.length);
-        if (at >= 0) return at + 1;
-      }
-    }
-    return opAt + 1;
-  }
-
-  // One frame with its source line. No line when the source is unreadable.
-  function PushSourceFrame_(frames, file, line) {
-    const src = SourceLine_(file, line);
-    if (src === null) {
-      frames.push('  ' + file + ':' + line);
+  // Prints one report line to the host (print in the shell, console in
+  // the browser).
+  function Print_(s) {
+    if (typeof print === 'function') {
+      print(s);
       return;
     }
-    frames.push('  ' + file + ':' + line + '  ' + src);
+    if (typeof console !== 'undefined' && typeof console.log === 'function') {
+      console.log(s);
+    }
   }
 
+  // Stops the script after a reported compilation failure so nothing
+  // misleading runs after the failed build. The shell exits cleanly (the
+  // report already printed); in the browser there is no quit(), so the
+  // caller simply receives undefined.
+  function StopAfterFailure_() {
+    if (typeof quit === 'function') {
+      quit(0);
+    }
+  }
 
-  function FormatError(e) {
-    let out;
-    if (e && e.code === 'internal') {
-      out = '*** WB: An error occurred!';
-    } else {
-      const name = (e && e.name) ? String(e.name) : 'Error';
-      const message = (e && e.message !== undefined) ? String(e.message) : String(e);
-      out = '@' + name + ': ' + message;
-    }
-    const verbose =
-      typeof global !== 'undefined' && global.WB_VERBOSE === true;
+  // Prints the clean report for a rejected module. Called by Encode()
+  // when a compilation failure is detected; the build then stops and
+  // returns undefined, so the host never sees an uncaught exception with
+  // the builder's internal stack.
+  function ReportCompilationFailed_(e) {
+    const name = (e && e.name) ? String(e.name) : 'CompilationFailed';
+    const message = (e && e.message !== undefined) ? String(e.message) : String(e);
+    let out = name + ': ' + message;
     const frames = [];
-    if (e && e.definitionFrame) {
-      // Builder failure.
-      // Point at the line that declared the bad body.
-      const df = e.definitionFrame;
-      const hit = LocateInstruction_(df.file, df.line, e.instruction, e.instructionOccurrence);
-      PushSourceFrame_(frames, hit ? hit.file : df.file,
-        hit ? hit.line : df.line);
-      if (verbose) {
-        const raw = (e && (e.internalStack || e.stack)) || '';
-        for (const line of String(raw).split('\n')) {
-          const loc = line.trim();
-          if (loc.length > 0) frames.push(loc);
-        }
-      }
-    } else {
-      const raw = (e && (e.internalStack || e.stack)) || '';
-      for (const line of String(raw).split('\n')) {
-        const loc = line.trim();
-        if (loc.length === 0) continue;
-        if (verbose) {
-          frames.push(loc);            // verbose the full raw trace.
-          continue;
-        }
-        // Frame shape
-        // file:line:col, with an optional function name.
-        const fr = FrameLocation_(loc);
-        if (!fr || IsInternalFrame_(fr)) continue;
-        PushSourceFrame_(frames, fr.file, fr.line);
-        break;                         // only the innermost frame.
-      }
-    }
-    if (verbose && e && e.cause !== undefined && e.cause !== null) {
-      const cm = (e.cause && e.cause.message !== undefined) ? e.cause.message : String(e.cause);
-      frames.push('cause: ' + cm);
+    const raw = (e && (e.internalStack || e.stack)) || '';
+    for (const line of String(raw).split('\n')) {
+      const loc = line.trim();
+      if (loc.length === 0) continue;
+      // First frame outside the builder: the test site, relative to cwd.
+      const fr = FrameLocation_(loc);
+      if (!fr || IsInternalFrame_(fr)) continue;
+      frames.push(RelativePath_(fr.file) + ':' + fr.line + ':' + fr.col);
+      break;                           // only that one frame.
     }
     if (frames.length > 0) {
       out += '\n\n@Stack:\n' + frames.join('\n');
     }
-    return out;
+    Print_(out);
   }
 
   // Sec ids.
@@ -1198,7 +1155,7 @@
         this.WriteHeapType(t.ref);
         return this;
       }
-      throw new StackCheckError('cannot encode value type: ' + JSON.stringify(t));
+      throw new CompilationFailed('cannot encode value type: ' + JSON.stringify(t));
     }
 
     // Writes a heap type: a type index or an abstract heap type name.
@@ -1225,7 +1182,7 @@
         this.WriteU8(HEAP[normalized]);
         return this;
       }
-      throw new StackCheckError('cannot encode heap type: ' + JSON.stringify(ht));
+      throw new CompilationFailed('cannot encode heap type: ' + JSON.stringify(ht));
     }
 
     // Writes a block type: void, a value type, a type index, or a descriptor.
@@ -1249,7 +1206,7 @@
         this.WriteS32LEB(typeIndexForObject);
         return this;
       }
-      throw new StackCheckError('cannot encode block type: ' + JSON.stringify(bt));
+      throw new CompilationFailed('cannot encode block type: ' + JSON.stringify(bt));
     }
 
     // Writes a limits block: initial, maximum, shared, address type.
@@ -1341,7 +1298,7 @@
     if (Array.isArray(data)) {
       return new Uint8Array(data);
     }
-    throw new StackCheckError('cannot interpret data as bytes');
+    throw new CompilationFailed('cannot interpret data as bytes');
   }
 
   function IsRefTypeName(t) {
@@ -1415,13 +1372,17 @@
       for (let i = 0; i < instrs.length; i++) {
         const instr = instrs[i];
         const name = Array.isArray(instr) ? instr[0] : instr;
+        if (typeof name !== 'string') {
+          throw new CompilationFailed('bad instruction: expected \'[op, args]\' or an op name string, got \'' +
+            InstrKey_(instr) + '\'');
+        }
         const args = Array.isArray(instr) ? instr.slice(1) : [];
         this.curInstr_ = instr;
         this.curIndex_ = i;
 
         // Nothing may follow the outermost end.
         if (terminated) {
-          throw new StackCheckError(
+          throw new CompilationFailed(
             'instruction appears after the outermost end');
         }
 
@@ -2237,7 +2198,7 @@
         return;
       }
 
-      throw new StackCheckError('unknown instruction "' + name + '"');
+      throw new CompilationFailed('unknown instruction "' + name + '"');
     }
 
     // Write the 16 bytes of a v128.const lane payload, accepts:
@@ -2288,7 +2249,7 @@
             }
             break;
           default:
-            throw new StackCheckError('unknown v128 lane type "' + laneType + '"');
+            throw new CompilationFailed('unknown v128 lane type "' + laneType + '"');
         }
         return;
       }
@@ -2341,7 +2302,7 @@
         w.WriteHeapType(ht.ref);
         return;
       }
-      throw new StackCheckError('cannot encode heap type immediate: ' + JSON.stringify(ht));
+      throw new CompilationFailed('cannot encode heap type immediate: ' + JSON.stringify(ht));
     }
 
     // br_on_cast: [flags, depth, srcType, dstType].
@@ -2538,7 +2499,47 @@
     return false;
   }
 
-  class StackTypeChecker {
+  // Universal instruction arity table, [min, max] immediate count. It
+  // mirrors the encoder exactly, so every instruction's argument count is
+  // validated up front here - a wrong count is a validation finding with
+  // attribution, never silently encoded or left to crash in the encoder.
+  // Ops not listed are validated by their dedicated checker paths (SIMD,
+  // GC, atomics, loads/stores).
+  const INSTR_ARITY = {
+    unreachable: [0, 0], nop: [0, 0], end: [0, 0], else: [0, 0],
+    return: [0, 0], drop: [0, 0], catch_all: [0, 0], throw_ref: [0, 0],
+    'ref.is_null': [0, 0], 'ref.eq': [0, 0], 'ref.as_non_null': [0, 0],
+    'ref.i31': [0, 0], 'i31.new': [0, 0], 'i31.get_s': [0, 0], 'i31.get_u': [0, 0],
+    'memory.atomic.fence': [0, 0],
+    block: [0, 1], loop: [0, 1], if: [0, 1], try: [0, 1],
+    select: [0, 1],
+    'memory.size': [0, 1], 'memory.grow': [0, 1],
+    br: [1, 1], br_if: [1, 1], br_on_null: [1, 1], br_on_non_null: [1, 1],
+    call: [1, 1], return_call: [1, 1],
+    call_ref: [1, 1], return_call_ref: [1, 1],
+    throw: [1, 1], rethrow: [1, 1], catch: [1, 1], delegate: [1, 1],
+    try_table: [1, 1],
+    'local.get': [1, 1], 'local.set': [1, 1], 'local.tee': [1, 1],
+    'global.get': [1, 1], 'global.set': [1, 1],
+    'i32.const': [1, 1], 'i64.const': [1, 1], 'f32.const': [1, 1], 'f64.const': [1, 1],
+    'ref.null': [1, 1], 'ref.func': [1, 1],
+    'table.get': [1, 1], 'table.set': [1, 1],
+    'call_indirect': [1, 2], 'return_call_indirect': [1, 2],
+    br_table: [2, 2],
+  };
+  // Opcode only families take zero immediates, the encoder writes just
+  // the opcode for single byte numeric / comparison ops and the numeric
+  // conversions, silently dropping any stray arguments. Validate the
+  // count up front like every other op instead of encoding a wrong
+  // module.
+  for (const n of Object.keys(UNARY_BYTE)) INSTR_ARITY[n] = [0, 0];
+  for (const n of Object.keys(CONV)) INSTR_ARITY[n] = [0, 0];
+  // table.size / grow / fill take a table index.
+  INSTR_ARITY['table.size'] = [1, 1];
+  INSTR_ARITY['table.grow'] = [1, 1];
+  INSTR_ARITY['table.fill'] = [1, 1];
+
+  class CompilationChecker {
     constructor(builder) {
       this.builder_ = builder;
       this.err_ = null;
@@ -2581,6 +2582,17 @@
         if (this.err_) break;
         const instr = instrs[i];
         const name = Array.isArray(instr) ? instr[0] : instr;
+        if (typeof name !== 'string') {
+          // Malformed instruction (e.g. a typo like ['local.get', 4]
+          // ['end'] parses as an array index expression and yields
+          // undefined). Report it as a compilation-failed finding instead
+          // of letting the encoder crash on name.startsWith below.
+          this.curInstr_ = instr;
+          this.curIndex_ = i;
+          this.Error_('bad instruction: expected \'[op, args]\' or an op name string, got \'' +
+            InstrKey_(instr) + '\'');
+          break;
+        }
         const args = Array.isArray(instr) ? instr.slice(1) : [];
         this.curInstr_ = instr;
         this.curIndex_ = i;
@@ -2613,7 +2625,7 @@
 
     Error_(msg) {
       if (!this.err_) {
-        this.err_ = new StackCheckError('TypeError: ' + msg);
+        this.err_ = new CompilationFailed('TypeError: ' + msg);
         // Remember the instruction being checked when the error fired.
         if (this.curIndex_ !== undefined && this.curIndex_ >= 0) {
           this.errInstr_ = this.curInstr_;
@@ -2709,15 +2721,17 @@
         this.Error_('instruction appears after the outermost end');
         return;
       }
-      // Fixed arity immediates, reject wrong argument counts up front so
-      // bad inputs Fail here with attribution, not in the encoder.
-      const fixedOne = ['local.get', 'local.set', 'local.tee',
-        'global.get', 'global.set',
-        'i32.const', 'i64.const', 'f32.const', 'f64.const',
-        'br', 'br_if', 'call', 'return_call', 'ref.func', 'ref.null',
-        'throw', 'rethrow', 'delegate', 'catch'];
-      if (fixedOne.indexOf(name) >= 0 && args.length !== 1) {
-        this.Error_(name + ': expected 1 argument, got ' + args.length);
+      // Universal arity: every instruction's immediate count is validated
+      // up front here (mirroring the encoder exactly), so a wrong argument
+      // count is a validation finding with attribution never silently
+      // encoded or left to crash inside the encoder.
+      const arity = INSTR_ARITY[name];
+      if (arity !== undefined &&
+        (args.length < arity[0] || args.length > arity[1])) {
+        const want = (arity[0] === arity[1])
+          ? arity[0] + ' argument' + (arity[0] === 1 ? '' : 's')
+          : arity[0] + '..' + arity[1] + ' arguments';
+        this.Error_(name + ': expected ' + want + ', got ' + args.length);
         return;
       }
       // Control flow.
@@ -4077,7 +4091,7 @@
       const idx = this.builder_.ResolveTable(ref);
       const elem = this.TableElemAt_(idx);
       if (elem === null || elem === undefined) {
-        throw new StackCheckError('table ' + idx + ' has no element type');
+        throw new CompilationFailed('table ' + idx + ' has no element type');
       }
       if (typeof elem === 'number') return { ref: elem, nullable: true };
       if (IsPlainObject(elem) && elem.ref !== undefined) {
@@ -4141,6 +4155,9 @@
 
     // Declare a local; params occupy indices 0..nparams-1 first.
     AddLocal(type, name) {
+      return GuardPublic_(this.builder_, () => this.AddLocal_(type, name), this);
+    }
+    AddLocal_(type, name) {
       const index = this.builder_.FuncTypeParams_(this).length + this.locals_.length;
       if (name !== undefined) {
         assert(!this.localNames_.has(name), 'duplicate local name "' + name + '"');
@@ -4151,7 +4168,10 @@
     }
 
     Body(instrs) {
-      assert(Array.isArray(instrs), 'Body() expects an array of instructions');
+      return GuardPublic_(this.builder_, () => this.Body_(instrs), this);
+    }
+    Body_(instrs) {
+      assert(Array.isArray(instrs), 'Body() expects an array of instructions, got ' + Inspect_(instrs));
       assert(this.bodyInstrs_ === null, 'Body() may only be called once');
       this.bodyInstrs_ = instrs;
       // Remember where this body was declared so errors can point at it.
@@ -4161,8 +4181,12 @@
     }
 
     ExportAs(exportName) {
+      return GuardPublic_(this.builder_, () => this.ExportAs_(exportName), this);
+    }
+    ExportAs_(exportName) {
       assert(typeof exportName === 'string' && exportName.length > 0,
-        'ExportAs: export name must be a non-empty string');
+        'ExportAs: export name must be a non-empty string, expected a non-empty string, got ' +
+        Inspect_(exportName));
       this.exportName_ = exportName;
       return this;
     }
@@ -4180,7 +4204,7 @@
           (this.name_ || '?') + '"');
         return this.localNames_.get(ref);
       }
-      throw new StackCheckError('cannot resolve local: ' + String(ref));
+      throw new CompilationFailed('cannot resolve local: ' + String(ref));
     }
 
   }
@@ -4204,6 +4228,8 @@
       this.elems_ = [];         // elem segment descriptions
       this.datas_ = [];         // data segment descriptions
       this.exports_ = [];       // {name, kind, ref}  ref resolved at encode
+      this.firstError_ = null;  // first user error, reported by Encode()
+      this.failFn_ = undefined; // no-op function builder after AddFunction fails
     }
 
     // Types
@@ -4225,6 +4251,9 @@
     // All accept {supertype} and {final: false}. Bare types are implicitly
     // final: a type is only extensible with the 'sub' prefix.
     AddType(desc) {
+      return GuardPublic_(this, () => this.AddType_(desc), 0);
+    }
+    AddType_(desc) {
       assert(IsPlainObject(desc), 'AddType: expected a type descriptor');
       const norm = this.NormalizeTypeDesc_(desc);
       const key = this.TypeKey_(norm);
@@ -4287,14 +4316,14 @@
       }
       if (IsPlainObject(ref) &&
         Array.isArray(ref.params) && Array.isArray(ref.results)) {
-        return this.AddType(ref);
+        return this.AddType_(ref);
       }
-      throw new StackCheckError('cannot resolve type: ' + String(ref));
+      throw new CompilationFailed('cannot resolve type: ' + String(ref));
     }
 
     // Ensure a function type exists and return its index.
     EnsureFuncType(desc) {
-      return this.AddType(desc);
+      return this.AddType_(desc);
     }
 
     FuncType_(typeIndex) {
@@ -4308,6 +4337,9 @@
     // Functions
     // name: optional, unique. type: index or {params, results}.
     AddFunction(name, type) {
+      return GuardPublic_(this, () => this.AddFunction_(name, type), this.FailFunctionBuilder_());
+    }
+    AddFunction_(name, type) {
       const typeIndex = this.ResolveTypeRef(type);
       assert(name === undefined || typeof name === 'string',
         'AddFunction: name must be a string');
@@ -4322,6 +4354,9 @@
     }
 
     AddImport(moduleName, fieldName, kindOrDesc, desc) {
+      return GuardPublic_(this, () => this.AddImport_(moduleName, fieldName, kindOrDesc, desc), 0);
+    }
+    AddImport_(moduleName, fieldName, kindOrDesc, desc) {
       let kind;
       if (typeof kindOrDesc === 'string') {
         kind = kindOrDesc;
@@ -4329,7 +4364,7 @@
         desc = kindOrDesc;
         kind = kindOrDesc.kind;
       } else {
-        throw new StackCheckError('AddImport: bad kind argument');
+        throw new CompilationFailed('AddImport: bad kind argument');
       }
       assert(typeof moduleName === 'string' && typeof fieldName === 'string',
         'AddImport: module and field must be strings');
@@ -4387,12 +4422,15 @@
           return this.tagImports_.length - 1;
         }
         default:
-          throw new StackCheckError('unknown import kind "' + kind + '"');
+          throw new CompilationFailed('unknown import kind "' + kind + '"');
       }
     }
 
     // Tables
     AddTable(descOrElement, initial, maximum) {
+      return GuardPublic_(this, () => this.AddTable_(descOrElement, initial, maximum), 0);
+    }
+    AddTable_(descOrElement, initial, maximum) {
       let desc;
       if (typeof descOrElement === 'string') {
         desc = { element: descOrElement, initial, maximum };
@@ -4414,6 +4452,9 @@
 
     // Memories
     AddMemory(descOrInitial, maximum) {
+      return GuardPublic_(this, () => this.AddMemory_(descOrInitial, maximum), 0);
+    }
+    AddMemory_(descOrInitial, maximum) {
       let desc;
       if (typeof descOrInitial === 'number') {
         desc = { initial: descOrInitial, maximum };
@@ -4435,6 +4476,9 @@
 
     // Globals
     AddGlobal(type, initValue, mutable) {
+      return GuardPublic_(this, () => this.AddGlobal_(type, initValue, mutable), 0);
+    }
+    AddGlobal_(type, initValue, mutable) {
       assert(type !== undefined, 'AddGlobal: type required');
       const entry = { type, mutable: !!mutable, init: initValue };
       entry.definitionFrame = FirstTestFrame_(new Error().stack);
@@ -4444,6 +4488,9 @@
 
     // Tags (exception handling)
     AddTag(type) {
+      return GuardPublic_(this, () => this.AddTag_(type), 0);
+    }
+    AddTag_(type) {
       const typeIndex = this.ResolveTypeRef(type);
       this.tagDefs_.push({ type: typeIndex });
       return this.tagImports_.length + this.tagDefs_.length - 1;
@@ -4451,6 +4498,9 @@
 
     // Element segments (indices or exprs form; active/passive/declared).
     AddElemSegment(desc) {
+      return GuardPublic_(this, () => this.AddElemSegment_(desc), 0);
+    }
+    AddElemSegment_(desc) {
       assert(IsPlainObject(desc), 'AddElemSegment: expected descriptor');
       assert(desc.indices !== undefined || desc.exprs !== undefined,
         'AddElemSegment: indices or exprs required');
@@ -4465,6 +4515,9 @@
 
     // Data segments
     AddDataSegment(descOrOffset, data) {
+      return GuardPublic_(this, () => this.AddDataSegment_(descOrOffset, data), 0);
+    }
+    AddDataSegment_(descOrOffset, data) {
       let desc;
       if (typeof descOrOffset === 'number' || Array.isArray(descOrOffset) ||
         descOrOffset instanceof Uint8Array) {
@@ -4482,6 +4535,9 @@
     // Exports
     // Export a function by name, builder, or explicit index.
     ExportFunction(refOrName, exportName) {
+      return GuardPublic_(this, () => this.ExportFunction_(refOrName, exportName), this);
+    }
+    ExportFunction_(refOrName, exportName) {
       let ref = refOrName;
       if (typeof refOrName === 'string' && exportName === undefined) {
         exportName = refOrName;
@@ -4502,6 +4558,9 @@
     }
 
     ExportTable(refOrName, exportName) {
+      return GuardPublic_(this, () => this.ExportTable_(refOrName, exportName), this);
+    }
+    ExportTable_(refOrName, exportName) {
       let ref = refOrName;
       if (typeof refOrName === 'string' && exportName === undefined) {
         exportName = refOrName;
@@ -4511,6 +4570,9 @@
     }
 
     ExportMemory(refOrName, exportName) {
+      return GuardPublic_(this, () => this.ExportMemory_(refOrName, exportName), this);
+    }
+    ExportMemory_(refOrName, exportName) {
       let ref = refOrName;
       if (typeof refOrName === 'string' && exportName === undefined) {
         exportName = refOrName;
@@ -4520,6 +4582,9 @@
     }
 
     ExportGlobal(refOrName, exportName) {
+      return GuardPublic_(this, () => this.ExportGlobal_(refOrName, exportName), this);
+    }
+    ExportGlobal_(refOrName, exportName) {
       let ref = refOrName;
       if (typeof refOrName === 'string' && exportName === undefined) {
         exportName = refOrName;
@@ -4529,12 +4594,36 @@
     }
 
     ExportTag(refOrName, exportName) {
+      return GuardPublic_(this, () => this.ExportTag_(refOrName, exportName), this);
+    }
+    ExportTag_(refOrName, exportName) {
       let ref = refOrName;
       if (typeof refOrName === 'string' && exportName === undefined) {
         exportName = refOrName;
       }
       this.AddExport_(exportName, KIND.TAG, ref);
       return this;
+    }
+
+    // Remembers the first user error so Encode() can report it cleanly.
+    RecordError_(e) {
+      if (this.firstError_ === null) {
+        this.firstError_ = e;
+      }
+    }
+
+    // A function builder that absorbs chained calls after AddFunction
+    // failed, so the fluent chain does not crash mid-build.
+    FailFunctionBuilder_() {
+      if (this.failFn_ === undefined) {
+        this.failFn_ = {
+          AddLocal: function () { return this; },
+          Body: function () { return this; },
+          ExportAs: function () { return this; },
+          ResolveLocal: function () { return 0; },
+        };
+      }
+      return this.failFn_;
     }
 
     AddExport_(name, kind, ref) {
@@ -4570,14 +4659,14 @@
             }
           }
         }
-        throw new StackCheckError('unknown ' + spaceName + ' "' + ref + '"');
+        throw new CompilationFailed('unknown ' + spaceName + ' "' + ref + '"');
       }
       if (IsFunctionBuilder(ref)) {
         const i = defs.indexOf(ref);
         assert(i >= 0, 'function builder not part of this module');
         return imports.length + i;
       }
-      throw new StackCheckError('cannot resolve ' + spaceName + ' reference');
+      throw new CompilationFailed('cannot resolve ' + spaceName + ' reference');
     }
 
     ResolveFunc(ref) {
@@ -4656,7 +4745,7 @@
           'elem segment index ' + ref + ' out of range');
         return ref;
       }
-      throw new StackCheckError('cannot resolve elem segment reference');
+      throw new CompilationFailed('cannot resolve elem segment reference');
     }
 
     // Table element type by resolved index, or undefined.
@@ -4686,7 +4775,7 @@
           'data segment index ' + ref + ' out of range');
         return ref;
       }
-      throw new StackCheckError('cannot resolve data segment reference');
+      throw new CompilationFailed('cannot resolve data segment reference');
     }
 
     HasMemory() {
@@ -4779,7 +4868,7 @@
           if (fnBuilder) {
             return fnBuilder.ResolveLocal(ref);
           }
-          throw new StackCheckError('local reference outside of a function');
+          throw new CompilationFailed('local reference outside of a function');
         },
         ResolveGlobal: (ref) => self.ResolveGlobal(ref),
         ResolveFunc: (ref) => self.ResolveFunc(ref),
@@ -4830,7 +4919,7 @@
           tmp.WriteU8(OP.F64Const);
           tmp.WriteF64(init);
         } else {
-          throw new StackCheckError('cannot build literal init for type ' + type);
+          throw new CompilationFailed('cannot build literal init for type ' + type);
         }
       } else if (init === null || typeof init === 'string') {
         // ref.null of the given/derived heap type.
@@ -4848,7 +4937,7 @@
         const ew = enc.Encode(init, ctx, { initialDepth: 0, finalEnd: false });
         tmp.bytes_.push.apply(tmp.bytes_, ew.bytes_);
       } else {
-        throw new StackCheckError('cannot encode init expression: ' + String(init));
+        throw new CompilationFailed('cannot encode init expression: ' + String(init));
       }
       // Terminating 'end' for the constant expression.
       tmp.WriteU8(OP.End);
@@ -4943,28 +5032,40 @@
     }
 
     Encode() {
-      // Builder errors pass through. Other errors are wrapped,
-      // with the original kept in the cause field.
+      // Error recorded by the public API is reported and stops the
+      // build (undefined). Unexpected builder errors propagate unchanged,
+      // preserving the original exception and its real stack.
+      if (this.firstError_ !== null) {
+        ReportCompilationFailed_(this.firstError_);
+        StopAfterFailure_();
+        return undefined;
+      }
       try {
         return this.EncodeInternal_();
       } catch (e) {
-        if (e instanceof StackCheckError) {
+        if (e instanceof CompilationFailed) {
           if (e.context === undefined) {
             e.context = this.Summary();
           }
-          throw e;
+          if (e.code === 'internal') {
+            // @BD, the builder failed to validate something it
+            // should have caught. Surface it, never swallow it.
+            throw e;
+          }
+          // Invalid module report it cleanly and stop. Returning
+          // undefined means the host never sees an uncaught exception.
+          ReportCompilationFailed_(e);
+          StopAfterFailure_();
+          return undefined;
         }
-        throw new StackCheckError(
-          (e && e.message !== undefined) ? String(e.message) : String(e), {
-            code: 'internal',
-            cause: e,
-            context: this.Summary(),
-          });
+        // Unexpected builder failure: never manufacture a new error around
+        // an existing one. Propagate the original exception and stack.
+        throw e;
       }
     }
 
     EncodeInternal_() {
-      // Pre-pass: materialize implicitly referenced function types.
+      // Prepass: materialize implicitly referenced function types.
       this.CollectImplicitTypes_();
 
       // Resolved index maps (imports first, then definitions).
@@ -5169,7 +5270,7 @@
               case KIND.MEMORY: idx = memIndex(e.ref); break;
               case KIND.GLOBAL: idx = globalIndex(e.ref); break;
               case KIND.TAG: idx = tagIndex(e.ref); break;
-              default: throw new StackCheckError('bad export kind');
+              default: throw new CompilationFailed('bad export kind');
             }
             www.WriteU32LEB(idx);
           });
@@ -5199,14 +5300,14 @@
               if (isExpr) {
                 if (tableElem !== undefined && tableElem !== null &&
                   JSON.stringify(elementType) !== JSON.stringify(tableElem)) {
-                  throw new StackCheckError(
+                  throw new CompilationFailed(
                     'elem segment element type ' + JSON.stringify(elementType) +
                     ' does not match table ' + tableIdx + ' (' +
                     JSON.stringify(tableElem) + ')', { definitionFrame: e.definitionFrame });
                 }
               } else if (tableElem !== undefined && tableElem !== null &&
                 tableElem !== 'funcref') {
-                throw new StackCheckError(
+                throw new CompilationFailed(
                   'elem segment with function indices requires a funcref table',
                   { definitionFrame: e.definitionFrame });
               }
@@ -5300,11 +5401,11 @@
             });
 
             // Stack type check.
-            const checker = new StackTypeChecker(this);
+            const checker = new CompilationChecker(this);
             if (!checker.Check(fn, fn.bodyInstrs_)) {
               const msg = checker.ErrorMessage();
-              throw new StackCheckError('function "' + (fn.name_ || i) + '": ' + msg, {
-                code: 'stack-check',
+              throw new CompilationFailed('function "' + (fn.name_ || i) + '":\n' + msg, {
+                code: 'compilation-failed',
                 definitionFrame: fn.definitionFrame_,
                 instruction: checker.ErrorInstruction_(),
                 instructionIndex: checker.ErrorInstructionIndex_(),
@@ -5318,11 +5419,11 @@
             try {
               ew = enc.Encode(fn.bodyInstrs_, ctx, { initialDepth: 1, finalEnd: true });
             } catch (e) {
-              if (e instanceof StackCheckError) {
+              if (e instanceof CompilationFailed) {
                 // Attribute the error to the function being encoded.
-                throw new StackCheckError(
-                  'function "' + (fn.name_ || i) + '": ' + e.message, {
-                    code: e.code || 'stack-check',
+                throw new CompilationFailed(
+                  'function "' + (fn.name_ || i) + '":\n' + e.message, {
+                    code: e.code || 'compilation-failed',
                     cause: e,
                     context: e.context,
                     definitionFrame: fn.definitionFrame_,
@@ -5387,6 +5488,7 @@
     // Inspection helpers
     Hex() {
       const bytes = this.Encode();
+      if (bytes === undefined) return null;   // compilation failure reported
       let out = '';
       for (let i = 0; i < bytes.length; i++) {
         out += bytes[i].toString(16).padStart(2, '0');
@@ -5394,15 +5496,19 @@
       return out;
     }
 
-    // Run the encoded bytes through the engine.
-    // No wrapping: if the engine rejects the module, its own error
-    // surfaces raw. A rejection here means the builder emitted a bad
-    // module, which is a bug in the builder (or the engine).
+    // Run the encoded bytes through the engine. The engine's own rejection
+    // error surfaces raw, never wrapped  a rejection here means the
+    // builder emitted a bad module, a bug in the builder (or might be in the engine).
     Compile() {
-      if (typeof WebAssembly === 'undefined') {
-        throw new Error('WebAssembly env is not available.');
+      if (typeof WebAssembly === 'undefined' ||
+        typeof WebAssembly.Module !== 'function') {
+        throw new Error('WebAssembly.Module is not available');
       }
-      return new WebAssembly.Module(this.Encode());
+      const bytes = this.Encode();
+      if (!(bytes instanceof Uint8Array)) {
+        throw new TypeError('Encode() did not return Uint8Array');
+      }
+      return new WebAssembly.Module(bytes);
     }
 
     // Compile, then instantiate with the import object.
@@ -5425,19 +5531,18 @@
         tagDefs: this.tagDefs_.length,
         elems: this.elems_.length,
         datas: this.datas_.length,
-        exports,
-      };
+        exports: this.exports_.length  
+    };
     }
   }
 
   global.WasmModuleBuilder = WasmModuleBuilder;
-  global.StackCheckError = StackCheckError;
-  global.FormatError = FormatError;
+  global.CompilationFailed = CompilationFailed;
 
   // Location of this builder block's end in its own file, captured at
   // load time. When the builder is pasted inline into a page (browser),
   // every frame inside the block has line <= this and the test code,
-  // pasted after the block, has larger lines - so internal frames can be
+  // pasted after the block, has larger lines  so internal frames can be
   // told apart even though they share one file name.
   const BUILDER_LOC_ = (function () {
     try {
