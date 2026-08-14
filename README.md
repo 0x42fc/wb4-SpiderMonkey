@@ -14,10 +14,10 @@ We can manually check whether it is imported or not. Simply use typeof WasmModul
 print(typeof WasmModuleBuilder, "before?");
 
 try {
-load("wbunit/wasm/WasmBuilder.js")
- print(typeof WasmModuleBuilder, "after!");
+  load("wbunit/wasm/WasmBuilder.js");
+  print(typeof WasmModuleBuilder, "after!");
 } catch (e) {
-    print("load can't failed:", e);
+  print("load failed:", e);
 }
 
 /*
@@ -28,6 +28,34 @@ load("wbunit/wasm/WasmBuilder.js")
 * $ function after!
 
 */
+```
+
+#### Error reporting
+
+The builder validates every module before the engine sees it. When a module is
+rejected, `Encode()` throws a `StackCheckError`. Catch it and pass it to
+`FormatError` for a readable report:
+
+```js
+try {
+  const bytes = mb.Encode();
+} catch (e) {
+  print(FormatError(e));
+}
+```
+
+The report names the failing instruction and points at the line in the test
+file that declared it. In the SpiderMonkey shell the report includes the source
+text of that line; in the browser only the file and line are shown, because a
+browser cannot read files synchronously.
+
+Both `StackCheckError` and `FormatError` are globals provided by the builder.
+
+Set `WB_VERBOSE = true` before the call to include the full stack trace in the
+report:
+
+```js
+globalThis.WB_VERBOSE = true;
 ```
 
 Before module creation, we must load it and provide the "Builder" API to the JS shell.
@@ -2006,8 +2034,7 @@ exports
 
 There is *an* example:
 ```js
-load("...");
-
+load("wbunit/wasm/WasmBuilder.js");
 
 const mb = new WasmModuleBuilder();
 
@@ -2026,7 +2053,7 @@ const type = mb.AddType({
 const target = mb.AddFunction("target", type);
 
 target.Body([
-    ['i32.const', 0x444444444]
+    ['i32.const', 0x4444444]
 ]);
 
 /*
@@ -2132,7 +2159,7 @@ Summary();
 "tagDefs":0,
 "elems":1,
 "datas":0,
-"exports":0}
+"exports":1}
 
 Hex();
 0061736d010000000105016000017f0303020000040501700102020707010372756e00010907010041000b01000a2502070041c48891220b1b004101d2002600410125001a4100d2004102fc110041011100000b
@@ -2363,13 +2390,6 @@ print(view.getUint32(0, true));
 
 The example stores the global value at memory address zero.
 
-#### CommonJS loading
-
-The builder can also be loaded through `module.exports` when the environment
-provides CommonJS support.
-
-The SpiderMonkey shell examples use:
-
 #### Memory64 host values
 
 Use BigInt when working with i64 values.
@@ -2402,33 +2422,13 @@ rules, module sections, and binary encoding.
 
 #### External WebAssembly reference
 
-```text
-[https://webassembly.org/]
-```
-```text
- [https://developer.mozilla.org/en-US/docs/WebAssembly]
-```
-```text
- [https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface]
-```
-```text
-[https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Using_the_JavaScript_API]
-```
-```text
- [https://firefox-source-docs.mozilla.org/js/]
-```
-```text
-[https://firefox-source-docs.mozilla.org/js/]
-```
-```text
- [https://firefox-source-docs.mozilla.org/]
-```
-```text
-[https://wasi.dev/]
-```
-```text
-https://webassembly.github.io/spec/
-```
+- https://webassembly.org/
+- https://developer.mozilla.org/en-US/docs/WebAssembly
+- https://developer.mozilla.org/en-US/docs/WebAssembly/Reference/JavaScript_interface
+- https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Using_the_JavaScript_API
+- https://firefox-source-docs.mozilla.org/js/
+- https://wasi.dev/
+- https://webassembly.github.io/spec/
 
 
 
