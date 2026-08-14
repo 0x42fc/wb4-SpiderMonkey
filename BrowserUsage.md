@@ -2,6 +2,21 @@
 
 `WasmBuilder.js` can be used to create **WebAssembly** modules for *browser* testing and fuzzing.
 
+### Loading
+
+In the browser, load the builder before your code, either by pasting its
+contents inline or with a script tag:
+
+```html
+<script src="wbunit/wasm/WasmBuilder.js"></script>
+```
+
+In the SpiderMonkey shell, load it with `load("wbunit/wasm/WasmBuilder.js")`.
+
+When the builder rejects a module, `Encode()` throws a `StackCheckError`.
+Report it in the browser with `console.log(FormatError(e))`; in the shell,
+`print(FormatError(e))`.
+
 ### Basic HTML
 
 ```html
@@ -22,46 +37,46 @@
 // Start creating modules.
 const mb = new WasmModuleBuilder();
 
-const base = mb.addType({
+const base = mb.AddType({
     kind: 'struct',
     fields: ['i32'],
     final: false
 });
 
-const sub = mb.addType({
+const sub = mb.AddType({
     kind: 'struct',
     fields: ['i32', 'i64'],
     supertype: base
 });
 
-const mk = mb.addFunction("mk", {
+const mk = mb.AddFunction("mk", {
     params: ['i32', 'i64'],
     results: [{ ref: sub, nullable: true }]
 });
 
-mk.body([
+mk.Body([
     ['local.get', 0],
     ['local.get', 1],
     ['struct.new', sub],
     ['end']
 ]);
 
-mk.exportAs("mk");
+mk.ExportAs("mk");
 
-const rd = mb.addFunction("rd_base", {
+const rd = mb.AddFunction("rd_base", {
     params: [{ ref: base, nullable: true }],
     results: ['i32']
 });
 
-rd.body([
+rd.Body([
     ['local.get', 0],
     ['struct.get', base, 0],
     ['end']
 ]);
 
-rd.exportAs("rd_base");
+rd.ExportAs("rd_base");
 
-const instance = mb.instantiate({});
+const instance = mb.Instantiate({});
 const obj = instance.exports.mk(5, 9n);
 const field = instance.exports.rd_base(obj);
 
@@ -78,8 +93,12 @@ Open the *browser* **Developer Tools** and *check* the Console.
 
 ```text
 WebAssembly.Instance {  }
-reached test.html:5448:9
+reached <page>:<line>:<col>
 ```
+
+The exact file name and line numbers depend on how the page is saved; the
+point is that `instance.exports.mk(5, 9n)` returns a struct and
+`instance.exports.rd_base(obj)` reads its first field.
 
 Depending on the browser, the console may also display a warning such as:
 
