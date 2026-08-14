@@ -5425,7 +5425,7 @@
         tagDefs: this.tagDefs_.length,
         elems: this.elems_.length,
         datas: this.datas_.length,
-        exports: this.exports_.length,
+        exports,
       };
     }
   }
