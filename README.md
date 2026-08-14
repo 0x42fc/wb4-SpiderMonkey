@@ -2444,6 +2444,6 @@ rules, module sections, and binary encoding.
 
 
 
-*** *[END OF THE DOCUMENTATION]* ***
-*** *[ Author: **shujaqureshiii ( 0x42fc) ** ]* ***
-*** [ If you find any type of bug, please report! ]* ***
+*** *[END OF THE DOCUMENTATION]* ***    
+*** *[ Author: **shujaqureshiii ( 0x42fc) ** ]* ***     
+*** [ If you find any type of bug, please report! ]* ***      
