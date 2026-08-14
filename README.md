@@ -33,30 +33,33 @@ try {
 #### Error reporting
 
 The builder validates every module before the engine sees it. When a module is
-rejected, `Encode()` throws a `StackCheckError`. Catch it and pass it to
-`FormatError` for a readable report:
+rejected, the builder prints a `CompilationFailed` report itself and stops
+(in the shell it exits cleanly; in the browser it returns `undefined`)
+instead of producing a module:
 
-```js
-try {
-  const bytes = mb.Encode();
-} catch (e) {
-  print(FormatError(e));
-}
+```text
+CompilationFailed: function "pwn":
+TypeError: bad instruction: expected '[op, args]' or an op name string, got 'undefined'
+
+@Stack:
+test.js:23:5
 ```
 
-The report names the failing instruction and points at the line in the test
-file that declared it. In the SpiderMonkey shell the report includes the source
-text of that line; in the browser only the file and line are shown, because a
-browser cannot read files synchronously.
+The report shows the compilation failure and the test file line that triggered
+it, with paths relative to the current directory. The builder's own frames are
+not shown, so no uncaught exception ever escapes to the host. After the report
+the script stops (the shell exits cleanly), so nothing misleading runs after a
+failed build. In the browser, where there is no `quit()`, the build simply
+returns `undefined`.
 
-Both `StackCheckError` and `FormatError` are globals provided by the builder.
+User errors raised by any builder call — `AddFunction`, `Body`, `ExportAs`,
+imports, exports, and so on — are collected and reported together at
+`Encode()` / `Compile()` time, so even a mid-build failure never dies raw.
 
-Set `WB_VERBOSE = true` before the call to include the full stack trace in the
-report:
+`CompilationFailed` is the error class. Unexpected builder errors are never
+wrapped: the original exception and its real stack propagate unchanged, so no
+error is manufactured around an existing one.
 
-```js
-globalThis.WB_VERBOSE = true;
-```
 
 Before module creation, we must load it and provide the "Builder" API to the JS shell.
 
@@ -2206,16 +2209,17 @@ const result = instance.exports.someFunc(...);
 
 #### Builder errors
 
-Validation has one face: **StackCheck**.
+Validation has one face: **CompilationFailed**.
 
-Invalid builder input is rejected by the stack checker before the module
+Invalid builder input is rejected by the CompilationChecker before the module
 ever reaches the engine, and it reports like this:
 
 ```text
-@StackCheck: function "bad": TypeError: expected type i32, got f64.
+CompilationFailed: function "bad":
+TypeError: expected type i32, got f64.
 
 @Stack:
-  test.js:23      ["end"]
+test.js:23:5
 ```
 
 Examples the checker rejects:
@@ -2230,9 +2234,17 @@ invalid limits
 other invalid builder input
 ```
 
+Instruction argument counts are validated universally before encoding, every
+op's immediate *arity* is checked up front by the checker (mirroring the
+encoder), so malformed instructions like `['local.get']` are rejected with a
+precise message and attribution, never silently encoded or left to crash.
+This covers the opcodeonly families too (numeric, comparison and
+conversion ops take zero immediates, so `['i32.add', 1]` is rejected rather
+than silently encoded), as well as `table.size`/`grow`/`fill`.
+
 There is no second validation category. `InternalError` exists only as a
-bug detector: it shows `*** WB: An error occurred!` when the builder itself
-failed to validate something it should have caught.
+bug detector, when the builder itself fails to validate something it should
+have caught, the original error propagates unchanged with its real stack.
 
 #### Builder and engine are separate
 
@@ -2240,7 +2252,7 @@ Engine errors are never wrapped. `Compile()` and `Instantiate()` call the
 engine directly, so if the engine rejects a module its own error surfaces
 raw, with its own message and stack. If a module passes the stack checker
 and the engine still rejects it, that means there is a bug in the builder
-or in the engine.
+or *maybe* in the engine.
 
 So this *graph* simulates the test path:
 ```text 
@@ -2248,7 +2260,7 @@ Testcase:
 └─ ModuleBuilder.js
   └─ Builds WebAssembly Module Definition
   └─ mb.Encode()
-    └─ StackChecker rejects bad modules before the engine
+    └─ CompilationChecker rejects bad modules before the engine
     └─ Encodes Module Definition Into WebAssembly bytecode 
       └─ WebAssembly.Module
         └─ SpiderMonkey Validates WebAssembly bytecode 
@@ -2432,5 +2444,6 @@ rules, module sections, and binary encoding.
 
 
 
-*[END OF THE DOCUMENTATION]*  
-*[ Author: **ShujaQureshi** ]*
+*** *[END OF THE DOCUMENTATION]* ***
+*** *[ Author: **shujaqureshiii ( 0x42fc) ** ]* ***
+*** [ If you find any type of bug, please report! ]* ***
