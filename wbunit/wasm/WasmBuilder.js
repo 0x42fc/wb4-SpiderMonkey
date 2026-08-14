@@ -4761,7 +4761,7 @@
         if (t.supertype !== undefined && t.supertype !== null) {
           supers.push(this.ResolveTypeRef(t.supertype));
         }
-        www.WriteVector(supers.length, (x, j) => x.WriteU32LEB(supers[j])));
+        www.WriteVector(supers.length, (x, j) => x.WriteU32LEB(supers[j]));
       }
       if (t.kind === 'struct') {
         www.WriteU8(STRUCT_FORM);
@@ -5282,6 +5282,10 @@
 
     /* --- module summary --- */
     Summary() {
+      let funcExports = 0;
+      for (const fn of this.funcDefs_) {
+        if (fn.exportName_ !== null) funcExports++;
+      }
       return {
         types: this.types_.length,
         funcImports: this.funcImports_.length,
@@ -5296,8 +5300,8 @@
         tagDefs: this.tagDefs_.length,
         elems: this.elems_.length,
         datas: this.datas_.length,
-        exports: this.exports_.length  
-    };
+        exports: this.exports_.length + funcExports,
+      };
     }
   }
 
