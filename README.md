@@ -32,8 +32,6 @@ try {
 
 The builder validates every module before the engine sees it. When a module is
 rejected, the builder prints a `CompilationFailed` report itself and stops
-(in the shell it exits cleanly in the browser it returns `undefined`)
-instead of producing a module:
 
 ```text
 CompilationFailed: function [function]
