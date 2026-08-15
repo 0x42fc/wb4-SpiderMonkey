@@ -1,11 +1,11 @@
 ## Usage of WasmModuleBuilder.
 
-This 'README' demonstrates how a builder API can construct a valid Wasm module by simply importing WasmBuilder.js. It provides a straightforward way to define the structure of a WebAssembly module without manually constructing its binary representation.
+This 'README' demonstrates, how a builder `API` can construct a valid **WebAssembly** module by simply importing WasmBuilder.js. It provides a straightforward way to define the structure of a **WebAssembly** module without manually constructing its binary representation.
 
 
-First of all, load the builder before using any WebAssembly builder API:
+Load the builder before using any WebAssembly builder API:
 ```js
-load("wbunit/wasm/WasmBuilder.js");
+load("WasmBuilder.js");
 ```
 Once the builder has been loaded, the WasmModuleBuilder API can be used to construct the module and define its required components.
 
@@ -14,7 +14,7 @@ We can manually check whether it is imported or not. Simply use typeof WasmModul
 print(typeof WasmModuleBuilder, "before?");
 
 try {
-  load("wbunit/wasm/WasmBuilder.js");
+  load("WasmBuilder.js");
   print(typeof WasmModuleBuilder, "after!");
 } catch (e) {
   print("load failed:", e);
@@ -22,8 +22,6 @@ try {
 
 /*
 
-* cs@ExplNOit MINGW64 
-* $ ./js test.js
 * $ undefined before?
 * $ function after!
 
@@ -34,30 +32,19 @@ try {
 
 The builder validates every module before the engine sees it. When a module is
 rejected, the builder prints a `CompilationFailed` report itself and stops
-(in the shell it exits cleanly; in the browser it returns `undefined`)
+(in the shell it exits cleanly in the browser it returns `undefined`)
 instead of producing a module:
 
 ```text
-CompilationFailed: function "pwn":
-TypeError: bad instruction: expected '[op, args]' or an op name string, got 'undefined'
+CompilationFailed: function [function]
+TypeError: bad instruction: expected [], got []
 
 @Stack:
-test.js:23:5
+[]
 ```
 
-The report shows the compilation failure and the test file line that triggered
-it, with paths relative to the current directory. The builder's own frames are
-not shown, so no uncaught exception ever escapes to the host. After the report
-the script stops (the shell exits cleanly), so nothing misleading runs after a
-failed build. In the browser, where there is no `quit()`, the build simply
-returns `undefined`.
-
-User errors raised by any builder call — `AddFunction`, `Body`, `ExportAs`,
-imports, exports, and so on — are collected and reported together at
-`Encode()` / `Compile()` time, so even a mid-build failure never dies raw.
-
 `CompilationFailed` is the error class. Unexpected builder errors are never
-wrapped: the original exception and its real stack propagate unchanged, so no
+wrapped. the original exception and its real stack unchanged, so no
 error is manufactured around an existing one.
 
 
@@ -66,12 +53,13 @@ Before module creation, we must load it and provide the "Builder" API to the JS 
 Create a module builder:
 ```js
 const mb = new WasmModuleBuilder(); // imported.
+// mb = (module builder), we can use any unique name.
 ```
 
 The builder stores the **types, functions, memories, tables, globals, segments,
  imports, exports**, and other module data until `Encode()` is called.
 
- We are adding a function,
+We are adding a function,
 and added a function with a name and signature:
 
 ```js
@@ -1753,9 +1741,7 @@ It does not use an `.rmw.` part in these names.
 #### Atomic memory ordering
 
 This builder does not encode *memory* order arguments.
-
 Atomic operations are emitted as sequentially consistent.
-
 The encoder also checks natural alignment for atomic operations.
 
 #### Exception tags
@@ -2037,7 +2023,7 @@ exports
 
 There is *an* example:
 ```js
-load("wbunit/wasm/WasmBuilder.js");
+load("WasmBuilder.js");
 
 const mb = new WasmModuleBuilder();
 
@@ -2237,20 +2223,20 @@ other invalid builder input
 Instruction argument counts are validated universally before encoding, every
 op's immediate *arity* is checked up front by the checker (mirroring the
 encoder), so malformed instructions like `['local.get']` are rejected with a
-precise message and attribution, never silently encoded or left to crash.
-This covers the opcodeonly families too (numeric, comparison and
+precise message and attribution, never silently encoded or left to fall.
+This covers the opcode only families too (numeric, comparison and
 conversion ops take zero immediates, so `['i32.add', 1]` is rejected rather
 than silently encoded), as well as `table.size`/`grow`/`fill`.
 
-There is no second validation category. `InternalError` exists only as a
-bug detector, when the builder itself fails to validate something it should
+There is no second validation category, note, `InternalError` exists only as a
+**bug detector**, when the builder itself *fails* to validate something it should
 have caught, the original error propagates unchanged with its real stack.
 
 #### Builder and engine are separate
 
 Engine errors are never wrapped. `Compile()` and `Instantiate()` call the
 engine directly, so if the engine rejects a module its own error surfaces
-raw, with its own message and stack. If a module passes the stack checker
+raw, with its own message and stack. If a module passes the bounds-check,
 and the engine still rejects it, that means there is a bug in the builder
 or *maybe* in the engine.
 
@@ -2382,11 +2368,6 @@ Call it:
 print(instance.exports.bump());
 ```
 
-The function returns:
-
-```text
-11
-```
 
 #### Exported memory inspection
 
