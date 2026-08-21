@@ -1,64 +1,50 @@
-## Usage of WasmModuleBuilder.
+## WasmBuilder: How to Use It
 
-This 'README' demonstrates, how a builder `API` can construct a valid **WebAssembly** module by simply importing WasmBuilder.js. It provides a straightforward way to define the structure of a **WebAssembly** module without manually constructing its binary representation.
+WasmBuilder lets you build a **WebAssembly** module from JavaScript. You define the types, functions, memory, tables, globals, and exports. When you call `Encode()`, you get the raw module bytes. No need to deal with binary encoding by hand.
 
+### Load the builder
 
-Load the builder before using any WebAssembly builder API:
 ```js
 load("WasmBuilder.js");
 ```
-Once the builder has been loaded, the WasmModuleBuilder API can be used to construct the module and define its required components.
 
-We can manually check whether it is imported or not. Simply use typeof WasmModuleBuilder. Note that you should use uppercase.
+Check it loaded:
+
 ```js
-print(typeof WasmModuleBuilder, "before?");
-
-try {
-  load("WasmBuilder.js");
-  print(typeof WasmModuleBuilder, "after!");
-} catch (e) {
-  print("load failed:", e);
-}
-
-/*
-
-* $ undefined before?
-* $ function after!
-
-*/
+print(typeof WasmModuleBuilder); // "function"
 ```
 
-#### Error reporting
+### Create a module
 
-The builder validates every module before the engine sees it. When a module is
-rejected, the builder prints a `CompilationFailed` report itself and stops
+```js
+const mb = new WasmModuleBuilder();
+```
+
+The builder holds everything (types, functions, memory, tables, globals, imports, exports, segments) until you call `Encode()`.
+
+---
+
+### Error reporting
+
+If something is wrong, the builder prints a `CompilationFailed` message and stops:
 
 ```text
-CompilationFailed: function [function]
-TypeError: bad instruction: expected [], got []
+CompilationFailed: function "bad":
+TypeError: expected type i32, got f64.
 
 @Stack:
-[]
+test.js:23:5
 ```
 
-`CompilationFailed` is the error class. Unexpected builder errors are never
-wrapped. the original exception and its real stack unchanged, so no
-error is manufactured around an existing one.
+The `@Stack:` line points to the code that created the bad instruction.
 
+Builder bugs (things the builder should have caught but didn't) show up as a different error type. Those are not wrapped. You see the real error and the real stack.
 
-Before module creation, we must load it and provide the "Builder" API to the JS shell.
+---
 
-Create a module builder:
-```js
-const mb = new WasmModuleBuilder(); // imported.
-// mb = (module builder), we can use any unique name.
-```
+### Functions
 
-The builder stores the **types, functions, memories, tables, globals, segments,
- imports, exports**, and other module data until `Encode()` is called.
-
-We are adding a function,
-and added a function with a name and signature:
+#### Creating a function
 
 ```js
 const f = mb.AddFunction("add", {
@@ -66,85 +52,36 @@ const f = mb.AddFunction("add", {
   results: ['i32']
 });
 ```
-The function name can be omitted,
-a supplied name must be *unique*.
-a function name can later be used by:
 
-```text
-call
-ref.func
-ExportFunction
-```
+The name is optional. If you give one, it must be unique. You can use the name later with `call`, `ref.func`, and `ExportFunction`.
 
-If the same function type is declared more than once, the **existing** *type* index
-is "reused".
+If you add the same function type twice, the builder reuses the first type index.
 
-##### Function signatures:  
-A function signature contains `params` and `results`.
+#### Function signatures
 
-Two `i32` parameters and one `i32` result:
+A signature has `params` (inputs) and `results` (outputs).
 
 ```js
-{
-  params: ['i32', 'i32'],
-  results: ['i32']
-}
+// Two i32 in, one i32 out
+{ params: ['i32', 'i32'], results: ['i32'] }
+
+// No inputs, no outputs
+{ params: [], results: [] }
+
+// One f64 in, one f64 out
+{ params: ['f64'], results: ['f64'] }
 ```
 
-Two `f64` parameters and one `f64` result:
+#### Adding locals
 
 ```js
-{
-  params: ['f64', 'f64'],
-  results: ['f64']
-}
+f.AddLocal('i32');           // unnamed
+f.AddLocal('i32', 'value');  // named, you can use 'value' in instructions
 ```
 
-No parameters and no results:
+Parameters use the first local indices. Extra locals come after the parameters.
 
-```js
-{
-  params: [],
-  results: []
-}
-```
-
-One parameter and no result:
-
-```js
-{
-  params: ['i32'],
-  results: []
-}
-```
-
-##### Function locals
-
-Add one local:
-
-```js
-const index = f.AddLocal('i32');
-```
-
-Add a named local:
-
-```js
-f.AddLocal('i32', 'value');
-```
-
-Parameters use the first local indices.
-Additional locals follow the parameters.
-
-A local can have a name:
-
-```js
-f.AddLocal('i32', 'value');
-```
-
-The name can then be *used* by local instructions.
-
-##### Function bodies
-Set the function body with `Body()`:
+#### Setting the body
 
 ```js
 f.Body([
@@ -155,103 +92,72 @@ f.Body([
 ]);
 ```
 
-The body is an array of instruction tuples.
-Each instruction has this form:
+Each instruction is `[name, ...args]`. The body must end with `'end'`. You can only call `Body()` once. It returns the function builder, so you can chain calls.
 
-```text
-[name, ...arguments]
-```
-
-The body must end with:
-
-```js
-['end']
-```
-
-`Body()` can only be called once.
-
-The call returns the function builder, so calls can be chained.
-
-Exporting a function,
-export from the function builder:
+#### Exporting a function
 
 ```js
 f.ExportAs("add");
 ```
 
-The exported function can then be called from **JavaScript** :
+Now you can call it from JavaScript:
 
 ```js
-instance.exports.add(2, 3);
+instance.exports.add(2, 3); // 5
 ```
 
-##### WebAssembly value types
+---
 
-- Numeric types:
+### Value types
+
+#### Numeric types
 
 ```text
-i32
-i64
-f32
-f64
+i32    i64    f32    f64
 ```
 
-- SIMD:
+#### SIMD type
 
 ```text
 v128
 ```
 
-- Reference types:
+#### Half-precision float (FP16, experimental)
 
 ```text
-funcref
-externref
-anyref
-eqref
-i31ref
-structref
-arrayref
-exnref
+f16
 ```
 
-- Typed GC references use:
+The `f16` type is added to the type table. You can use it in struct fields and function signatures. SpiderMonkey may not support `f16` instructions yet. The builder will encode them, but the engine decides if they run.
 
-```js
-{
-  ref: typeRef,
-  nullable: true
-}
-```
-
-or:
-
-```js
-{
-  ref: typeRef,
-  nullable: false
-}
-```
-
-- Packed field types
-
-The builder accepts:
+#### Reference types
 
 ```text
-i8
-i16
+funcref    externref    anyref    eqref
+i31ref     structref    arrayref  exnref
 ```
 
-for packed struct and array fields.
-
-These fields are stored as packed `i8` or `i16` fields and are treated as `i32`,
-values on the WebAssembly stack.
-
-`i64` values:
-Use BigInt for i64 constants.
+#### Typed GC references
 
 ```js
-['i64.const', 4n]
+{ ref: typeRef, nullable: true }
+{ ref: typeRef, nullable: false }
+```
+
+#### Packed field types
+
+```text
+i8    i16
+```
+
+These work inside struct and array fields. On the stack they act as `i32`.
+
+#### i64 values
+
+Use BigInt for i64 constants:
+
+```js
+['i64.const', 42n]
 ```
 
 For globals:
@@ -260,72 +166,114 @@ For globals:
 mb.AddGlobal('i64', 0n, true);
 ```
 
-Numeric i64 literals are accepted and converted with `BigInt`; prefer
-BigInt for values that do not fit exactly in a double.
+---
 
-##### Control flow instructions
+### Control flow
 
-Block:
+#### Block
 
 ```js
 ['block', <blocktype>]
-...
+  ...
 ['end']
 ```
 
-Loop:
+#### Loop
 
 ```js
 ['loop', <blocktype>]
-...
+  ...
 ['end']
 ```
 
-If:
+#### If / else
 
 ```js
 ['if', <blocktype>]
-...
+  ...
 ['else']
-...
+  ...
 ['end']
 ```
 
-Try/catch:
+#### Try / catch
 
 ```js
 ['try', <blocktype>]
-...
-['catch', <tagRef>]
-...
+  ...
+['catch', tagRef]
+  ...
 ['end']
 ```
 
-Catch all:
+#### Catch all
 
 ```js
 ['try', <blocktype>]
-...
+  ...
 ['catch_all']
-...
-['end']
+  ...
+['end']]
 ```
 
-Delegate:
+#### Catch ref (exnref binding)
 
 ```js
 ['try', <blocktype>]
-...
+  ...
+['catch_ref', tagRef]
+  ...
+['end']
+```
+
+Pushes the tag payload values plus an `exnref` onto the stack.
+
+#### Catch all ref
+
+```js
+['try', <blocktype>]
+  ...
+['catch_all_ref']
+  ...
+['end']
+```
+
+Pushes just the `exnref` onto the stack.
+
+#### Delegate
+
+```js
+['try', <blocktype>]
+  ...
 ['delegate', <depth>]
 ```
 
-Try table:
+#### Try table
 
 ```js
-['try_table', <blocktype>, <catches>]
+['try_table', <blocktype>, catches]
 ```
 
-Branches:
+Each catch entry:
+
+```text
+[tagRef | 'all', depth, captureExnRef?]
+```
+
+Example:
+
+```js
+['try_table',
+  { params: [], results: ['i32'] },
+  [
+    [tagIndex, 0],         // catch
+    ['all', 0],            // catch_all
+    [tagIndex, 0, true]    // catch_ref
+  ]
+]
+```
+
+#### Branches
 
 ```js
 ['br', <depth>]
@@ -333,7 +281,7 @@ Branches:
 ['br_table', <depths>, <defaultDepth>]
 ```
 
-Other control instructions:
+#### Other control
 
 ```js
 ['return']
@@ -343,130 +291,61 @@ Other control instructions:
 ['select_t', [<types>]]
 ```
 
-##### Block types
+---
 
-An empty block can use:
+### Block types
 
-```js
-['block']
-```
-
-or:
+Empty block:
 
 ```js
-['block', null]
+['block']       // or ['block', null]
 ```
 
-A block with one result can use:
+Single result:
 
 ```js
 ['block', 'i32']
 ```
 
-A multi value block uses an object:
+Multiple results:
 
 ```js
-['block', {
-  params: [],
-  results: ['i32', 'f64']
-}]
+['block', { params: [], results: ['i32', 'f64'] }]
 ```
 
-A previously declared function type index can also be used:
+Reuse a type index:
 
 ```js
 ['block', typeIndex]
 ```
 
-Array block types are not supported.
-
-Don't use:
+Do NOT use an array:
 
 ```js
+// wrong:
 ['block', ['i32', 'f64']]
+
+// right:
+['block', { params: [], results: ['i32', 'f64'] }]
 ```
 
-Use:
+---
 
-```js
-['block', {
-  params: [],
-  results: ['i32', 'f64']
-}]
-```
-
-For an `if` block with parameters, push the block parameters before the
-condition.
-
-##### Branch tables
-
-A `br_table` instruction has this form:
-
-```js
-['br_table', depths, defaultDepth]
-```
-
-The branch label values are pushed before the selector.
-
-The selector is an i32 value.
-
-##### Select
-
-Basic select:
-
-```js
-['select']
-```
-
-Typed select:
-
-```js
-['select_t', ['f64']]
-```
-
-For `select_t`, the first value is selected when the condition is non-zero.
-
-##### Constants
-
-i32:
+### Constants
 
 ```js
 ['i32.const', 42]
-```
-
-i64:
-
-```js
 ['i64.const', 42n]
-```
-
-f32:
-
-```js
 ['f32.const', 1.5]
-```
-
-f64:
-
-```js
 ['f64.const', 3.25]
-```
-
-v128:
-
-```js
-['v128.const', <16-byte payload>]
-```
-
-Reference null:
-
-```js
+['v128.const', <16 bytes>]
+['f16.const', 1.5]        // experimental
 ['ref.null', 'func']
 ```
 
- ##### Local instructions
+---
 
-Local access can use an index or a registered local name.
+### Local instructions
 
 ```js
 ['local.get', 0]
@@ -474,132 +353,109 @@ Local access can use an index or a registered local name.
 ['local.tee', 0]
 ```
 
-##### Global instructions
+You can use a name if you added one with `AddLocal`:
 
-Global access can use an index imported globals can also be referenced
-by their import field name. Defined globals created with `AddGlobal()`
-cannot be named. The same applies to defined tables, memories, and tags
-(only imports carry names).
+```js
+['local.get', 'value']
+```
+
+---
+
+### Global instructions
 
 ```js
 ['global.get', 0]
 ['global.set', 0]
 ```
 
-##### Direct calls
+Imported globals can be referenced by their import name. Defined globals (from `AddGlobal`) use indices.
 
-Call a function by index or name:
+---
+
+### Calls
+
+#### Direct call
 
 ```js
 ['call', funcRef]
 ```
 
-##### Indirect calls
-
-Call through a table:
+#### Indirect call (through a table)
 
 ```js
 ['call_indirect', typeRef]
+['call_indirect', typeRef, tableRef]  // explicit table
 ```
 
-The default table is table zero.
-
-An explicit table can be supplied:
-
-```js
-['call_indirect', typeRef, tableRef]
-```
-
-##### Tail calls
-
-Return call:
-
-```js
-['return_call', funcRef]
-```
-
-Return-call-ref:
-
-```js
-['return_call_ref', typeRef]
-```
-
-`return_call_ref` depends on support in the current build.
-
- call_ref
-
-Call a reference:
+#### Call a reference
 
 ```js
 ['call_ref', typeRef]
 ```
 
-The callee is taken from the top of the stack.
-
- Memory creation
-
-Create memory with an initial page count:
+#### Tail calls
 
 ```js
-const mi = mb.AddMemory(1);
+['return_call', funcRef]
+['return_call_ref', typeRef]
 ```
 
-Create memory with a maximum:
+---
+
+### Memory
+
+#### Creating memory
 
 ```js
-const mi = mb.AddMemory(1, 2);
-```
+mb.AddMemory(1);              // 1 page initial
+mb.AddMemory(1, 2);           // 1 page initial, 2 pages max
 
-Use a descriptor:
-
-```js
-const mi = mb.AddMemory({
+mb.AddMemory({                // descriptor form
   initial: 1,
   maximum: 2
 });
 ```
 
- #### Shared memory
-
-Create shared memory:
+#### Shared memory
 
 ```js
-const mi = mb.AddMemory({
+mb.AddMemory({
   initial: 1,
   shared: true
 });
 ```
 
-Shared memory is required for atomic instructions.
+Shared memory is needed for atomic instructions.
 
- #### Memory64
-
-Create memory64:
+#### Memory64
 
 ```js
-const mi = mb.AddMemory({
+mb.AddMemory({
   initial: 1,
   addressType: 'i64'
 });
 ```
 
-With `memory64`, memory addresses use `i64`.
+With Memory64, addresses are `i64` instead of `i32`.
 
-Memory64 affects load, store, grow, and size addressing.
+#### Custom page sizes
 
-Bulk memory operations use `i64` addresses for destination, source, and length.
+```js
+mb.AddMemory({
+  initial: 1,
+  pageSize: 256     // 256 bytes per page instead of 65536
+});
+```
 
-The value operand remains i32.
+Page size must be a power of 2, at most 65536. If you don't set it, the default 65536 is used.
 
 #### Memory indexes
 
-The returned memory index follows the memory index space.
+Imported memories come first. Defined memories come after. The index returned by `AddMemory` follows this order.
 
-Imported memories come before defined memories.
+---
 
-#### Memory loads
-
-Examples:
+### Memory loads
 
 ```js
 ['i32.load', memarg]
@@ -615,11 +471,6 @@ Narrow loads:
 ['i32.load8_u', memarg]
 ['i32.load16_s', memarg]
 ['i32.load16_u', memarg]
-```
-
-i64 narrow loads:
-
-```js
 ['i64.load8_s', memarg]
 ['i64.load8_u', memarg]
 ['i64.load16_s', memarg]
@@ -628,7 +479,9 @@ i64 narrow loads:
 ['i64.load32_u', memarg]
 ```
 
-#### Memory stores
+---
+
+### Memory stores
 
 ```js
 ['i32.store', memarg]
@@ -647,9 +500,11 @@ Narrow stores:
 ['i64.store32', memarg]
 ```
 
-#### Memory arguments
+---
 
-A load or store can use an offset:
+### Memory arguments (memarg)
+
+Just an offset:
 
 ```js
 ['i32.load', 0]
@@ -667,408 +522,199 @@ Array form:
 ['i32.load', [0, 4]]
 ```
 
-Explicit memory index:
+With an explicit memory index:
 
 ```js
 ['i32.load', 0, 4, memIndex]
-```
-
-or:
-
-```js
 ['i32.load', [0, 4, memIndex]]
 ```
 
-Alignment must be a power of two.
+Alignment must be a power of 2. The encoder stores it as log2(alignment).
 
-The *encoder* stores the alignment as log2(alignment).
+---
 
-#### Memory bulk operations
-
-Memory size:
+### Bulk memory operations
 
 ```js
 ['memory.size']
-```
-
-Memory grow:
-
-```js
 ['memory.grow']
-```
-
-Copy:
-
-```js
 ['memory.copy']
-```
-
-Fill:
-
-```js
 ['memory.fill']
-```
-
-Initialize from a data segment:
-
-```js
 ['memory.init', dataRef]
-```
-
-Drop a data segment:
-
-```js
 ['data.drop', dataRef]
+['memory.discard']    // see note below
 ```
 
-#### Tables
+**Note on memory.discard:** The builder encodes `memory.discard` correctly (opcode `0xfc 0x12`). But the engine must support it too. If SpiderMonkey rejects your module, it means the engine build does not include this feature yet.
 
-Create a funcref table:
+---
 
-```js
-const ti = mb.AddTable('funcref', 1, 2);
-```
+### Tables
 
-Descriptor form:
+#### Creating tables
 
 ```js
-const ti = mb.AddTable({
+mb.AddTable('funcref', 1, 2);    // type, initial, max
+
+mb.AddTable({                      // descriptor form
   element: 'funcref',
   initial: 1,
   maximum: 2
 });
-```
 
-Externref table:
-
-```js
-const ti = mb.AddTable({
+mb.AddTable({
   element: 'externref',
   initial: 1
 });
 ```
 
-#### Table element types
-
-The builder accepts:
-
-```text
-funcref
-externref
-```
-
-and other reference types supported by the builder.
-
 #### Table instructions
-
-Read:
 
 ```js
 ['table.get', tableRef]
-```
-
-Write:
-
-```js
 ['table.set', tableRef]
-```
-
-Size:
-
-```js
 ['table.size', tableRef]
-```
-
-Grow:
-
-```js
 ['table.grow', tableRef]
-```
-
-Fill:
-
-```js
 ['table.fill', tableRef]
-```
-
-Copy:
-
-```js
 ['table.copy']
-```
-
-Initialize:
-
-```js
 ['table.init', elemRef, tableRef]
-```
-
-Drop:
-
-```js
 ['elem.drop', elemRef]
 ```
 
+---
+
+### Imports
+
 #### Function imports
 
-Import a function:
-
 ```js
-const i = mb.AddImport(
-  'env',
-  'log',
-  {
-    kind: 'function',
-    type: {
-      params: ['i32'],
-      results: []
-    }
-  }
-);
-```
-*Hmmm, Nice architecture?*   
-so `func` is also accepted:
-
-```js
-const i = mb.AddImport(
-  'env',
-  'log',
-  {
-    kind: 'func',
-    type: {
-      params: ['i32'],
-      results: []
-    }
-  }
-);
+mb.AddImport('env', 'log', {
+  kind: 'function',
+  type: { params: ['i32'], results: [] }
+});
 ```
 
-An alternate form is:
+Short form with `func`:
 
 ```js
-const i = mb.AddImport(
-  'env',
-  'log',
-  'function',
-  {
-    params: ['i32'],
-    results: []
-  }
-);
+mb.AddImport('env', 'log', {
+  kind: 'func',
+  type: { params: ['i32'], results: [] }
+});
+```
+
+Alternate form:
+
+```js
+mb.AddImport('env', 'log', 'function', {
+  params: ['i32'],
+  results: []
+});
 ```
 
 #### Table imports
 
 ```js
-mb.AddImport(
-  'env',
-  'tbl',
-  {
-    kind: 'table',
-    element: 'funcref',
-    initial: 1
-  }
-);
+mb.AddImport('env', 'tbl', {
+  kind: 'table',
+  element: 'funcref',
+  initial: 1
+});
 ```
 
 #### Memory imports
 
 ```js
-mb.AddImport(
-  'env',
-  'mem',
-  {
-    kind: 'memory',
-    initial: 1,
-    maximum: 2
-  }
-);
+mb.AddImport('env', 'mem', {
+  kind: 'memory',
+  initial: 1,
+  maximum: 2
+});
 ```
 
-Shared memory:
+Shared:
 
 ```js
-mb.AddImport(
-  'env',
-  'mem',
-  {
-    kind: 'memory',
-    initial: 1,
-    shared: true
-  }
-);
+mb.AddImport('env', 'mem', {
+  kind: 'memory',
+  initial: 1,
+  shared: true
+});
 ```
 
 #### Global imports
 
 ```js
-mb.AddImport(
-  'env',
-  'g',
-  {
-    kind: 'global',
-    type: 'i32',
-    mutable: false
-  }
-);
+mb.AddImport('env', 'g', {
+  kind: 'global',
+  type: 'i32',
+  mutable: false
+});
 ```
 
 #### Tag imports
 
 ```js
-mb.AddImport(
-  'env',
-  'tag',
-  {
-    kind: 'tag',
-    type: {
-      params: ['i32'],
-      results: []
-    }
-  }
-);
+mb.AddImport('env', 'tag', {
+  kind: 'tag',
+  type: { params: ['i32'], results: [] }
+});
 ```
 
 #### Import indexes
 
-Imports are placed before definitions in each index space.
+Imports come first in each index space (functions, tables, memories, globals, tags). Defined items follow the imports.
 
-This applies to:
+---
 
-```text
-functions
-tables
-memories
-globals
-tags
-```
-
-For example, imported function index 0 is function index 0.
-
-Defined functions follow the imported functions.
+### Exports
 
 #### Function exports
 
-Export from the function builder:
-
 ```js
-f.ExportAs("name");
-```
-
-Export by function name:
-
-```js
-mb.ExportFunction("funcName", "exportName");
-```
-
-Export by builder:
-
-```js
-mb.ExportFunction(f, "exportName");
-```
-
-Export by index:
-
-```js
-mb.ExportFunction(3, "exportName");
+f.ExportAs("name");                       // from function builder
+mb.ExportFunction("funcName", "export");  // by function name
+mb.ExportFunction(f, "export");           // by builder
+mb.ExportFunction(3, "export");           // by index
 ```
 
 #### Other exports
 
-Table:
-
 ```js
 mb.ExportTable(0, "tbl");
-```
-
-Memory:
-
-```js
 mb.ExportMemory(0, "mem");
-```
-
-Global:
-
-```js
 mb.ExportGlobal(0, "g");
-```
-
-Tag:
-
-```js
 mb.ExportTag(0, "tag");
 ```
 
-#### Creating globals
+---
 
-Immutable i32:
-
-```js
-const gi = mb.AddGlobal('i32', 0);
-```
-
-Mutable i32:
+### Globals
 
 ```js
-const gi = mb.AddGlobal('i32', 5, true);
+mb.AddGlobal('i32', 0);              // immutable i32
+mb.AddGlobal('i32', 5, true);        // mutable i32
+mb.AddGlobal('i64', 0n, true);       // mutable i64
+mb.AddGlobal('funcref', null);       // null funcref
+mb.AddGlobal('f64', 1.5);            // f64
 ```
 
-Mutable i64:
-
-```js
-const gi = mb.AddGlobal('i64', 0n, true);
-```
-
-funcref:
-
-```js
-const gi = mb.AddGlobal('funcref', null);
-```
-
-f64:
-
-```js
-const gi = mb.AddGlobal('f64', 1.5);
-```
-
-#### Global initializers
-
-The builder accepts these initializer forms:
+#### Initializer forms
 
 ```text
-number
-bigint
-null
-string
-{ref: funcRef}
-[instructions]
+number          for i32, f32, f64
+bigint          for i64
+null            null reference using the global's type
+string          null reference using the given heap type
+{ref: funcRef}  function reference
+[instructions]  constant expression
 ```
 
-Numbers are used for `i32`, `f32`, and `f64`.
+---
 
-`i64` uses BigInt.
+### GC types
 
-`null` creates a null reference using the global type.
-
-A string creates a *null* reference using the supplied heap type.
-
-A function reference can be created with:
-
-```js
-{ref: funcRef}
-```
-
-An instruction list can be used for a constant initializer:
-
-```js
-[
-  ['global.get', 0]
-]
-```
-
-#### Struct types
-
-Create a struct:
+#### Structs
 
 ```js
 const t = mb.AddType({
@@ -1077,50 +723,35 @@ const t = mb.AddType({
 });
 ```
 
-A field can include mutability:
+With mutability:
 
 ```js
 const t = mb.AddType({
   kind: 'struct',
   fields: [
-    {type: 'i32', mutable: true},
-    {type: 'i8'}
+    { type: 'i32', mutable: true },
+    { type: 'i8' }
   ]
 });
 ```
 
-A string field is immutable shorthand.
-
-#### Array types
-
-Create an immutable element array:
+#### Arrays
 
 ```js
 const t = mb.AddType({
   kind: 'array',
   element: 'i32'
 });
-```
 
-Create a mutable element array:
-
-```js
 const t = mb.AddType({
   kind: 'array',
-  element: {
-    type: 'i32',
-    mutable: true
-  }
+  element: { type: 'i32', mutable: true }
 });
 ```
 
-#### GC subtyping
+#### Subtyping
 
-The base type must be declared before its subtype.
-
-The base type must not be final.
-
-Example:
+The base type must be declared first and must not be final:
 
 ```js
 const base = mb.AddType({
@@ -1136,187 +767,53 @@ const sub = mb.AddType({
 });
 ```
 
-#### Struct instructions
+---
 
-Create a struct:
+### GC instructions
+
+#### Struct instructions
 
 ```js
 ['struct.new', typeRef]
-```
-
-Create a struct with default values:
-
-```js
 ['struct.new_default', typeRef]
-```
-
-Read a field:
-
-```js
 ['struct.get', typeRef, fieldIndex]
-```
-
-Signed packed read:
-
-```js
 ['struct.get_s', typeRef, fieldIndex]
-```
-
-Unsigned packed read:
-
-```js
 ['struct.get_u', typeRef, fieldIndex]
-```
-
-Write a field:
-
-```js
 ['struct.set', typeRef, fieldIndex]
 ```
 
-The field index is an immediate value.
-
-It is not taken from the stack.
-
-#### Struct stack order
-
-For `struct.set`, push the reference first and the value second.
-
-The stack order is:
-
-```text
-ref
-value
-```
+For `struct.set`, push the reference first, then the value.
 
 #### Array instructions
 
-Create an array:
-
 ```js
 ['array.new', typeRef]
-```
-
-Create an array with default values:
-
-```js
 ['array.new_default', typeRef]
-```
-
-Create a fixed array:
-
-```js
 ['array.new_fixed', typeRef, count]
-```
-
-Create from a data segment:
-
-```js
 ['array.new_data', typeRef, dataRef]
-```
-
-Create from an element segment:
-
-```js
 ['array.new_elem', typeRef, elemRef]
-```
-
-Read an array element:
-
-```js
 ['array.get', typeRef]
-```
-
-Signed read:
-
-```js
 ['array.get_s', typeRef]
-```
-
-Unsigned read:
-
-```js
 ['array.get_u', typeRef]
-```
-
-Write an array element:
-
-```js
 ['array.set', typeRef]
-```
-
-Get length:
-
-```js
 ['array.len']
-```
-
-Fill:
-
-```js
 ['array.fill', typeRef]
-```
-
-Copy:
-
-```js
 ['array.copy', typeRef, typeRef]
-```
-
-Initialize from data:
-
-```js
 ['array.init_data', typeRef, dataRef]
-```
-
-Initialize from elements:
-
-```js
 ['array.init_elem', typeRef, elemRef]
 ```
 
-#### Array stack order
-
-For `array.get`, push:
-
-```text
-ref
-index
-```
-
-The reference is pushed first.
-
-For `array.set`, push:
-
-```text
-ref
-index
-value
-```
-
-The reference is pushed first.
+For `array.get`, push the reference first, then the index.
 
 #### i31 instructions
 
-Create an i31 reference:
-
 ```js
 ['i31.new']
-```
-
-Signed extraction:
-
-```js
 ['i31.get_s']
-```
-
-Unsigned extraction:
-
-```js
 ['i31.get_u']
 ```
 
-#### Reference conversion instructions
+#### Reference conversions
 
 ```js
 ['any.convert_extern']
@@ -1325,200 +822,106 @@ Unsigned extraction:
 
 #### Reference instructions
 
-Null check:
-
 ```js
 ['ref.is_null']
-```
-
-Non null assertion:
-
-```js
 ['ref.as_non_null']
-```
-
-Reference equality:
-
-```js
 ['ref.eq']
-```
-
-Function reference:
-
-```js
 ['ref.func', funcRef]
-```
-
-Type test:
-
-```js
 ['ref.test', typeRef]
-```
-
-Type cast:
-
-```js
 ['ref.cast', typeRef]
-```
-
-Nullable type test:
-
-```js
 ['ref.test_null', typeRef]
-```
-
-Nullable type cast:
-
-```js
 ['ref.cast_null', typeRef]
+['ref.null', heapType]
 ```
 
-Branch on null:
+#### Branch on reference
 
 ```js
 ['br_on_null', depth]
-```
-
-Branch on non-null:
-
-```js
 ['br_on_non_null', depth]
-```
-
-Branch on cast:
-
-The first argument is a flags byte (0..3) selecting the nullability of
-the source and destination types:
-
-```js
 ['br_on_cast', flags, depth, srcTypeRef, dstTypeRef]
+['br_on_cast_fail', flags, depth, srcTypeRef, dstTypeRef]
 ```
 
-`br_on_cast_fail` uses the same form.
+The `flags` byte (0..3) selects nullability of source and destination types.
 
-#### SIMD constants
+---
 
-A v128 constant can be given as **16** *byte* values:
+### SIMD
+
+#### v128 constants
+
+16 bytes:
 
 ```js
-['v128.const', [
-  0, 0, 0, 0,
-  0, 0, 0, 0,
-  0, 0, 0, 0,
-  0, 0, 0, 0
-]]
+['v128.const', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]
 ```
 
-It can also use a 32 character hexadecimal string:
+Hex string (32 characters):
 
 ```js
-[
-  'v128.const',
-  '00000000000000000000000000000000'
-]
+['v128.const', '00000000000000000000000000000000']
 ```
-
-A BigInt can also represent the 128 bit value.
 
 Lane form:
 
 ```js
-[
-  'v128.const',
-  ['i32x4', [1, 2, 3, 4]]
-]
+['v128.const', ['i32x4', [1, 2, 3, 4]]]
 ```
 
-Supported lane shapes:
+Lane shapes:
 
 ```text
-i8x16
-i16x8
-i32x4
-i64x2
-f32x4
-f64x2
+i8x16    i16x8    i32x4    i64x2    f32x4    f64x2
 ```
 
-#### SIMD splat instructions
+#### Splat
 
-Supported splat forms include:
-
-```text
-i8x16.splat
-i16x8.splat
-i32x4.splat
-i64x2.splat
-f32x4.splat
-f64x2.splat
+```js
+['i8x16.splat']
+['i16x8.splat']
+['i32x4.splat']
+['i64x2.splat']
+['f32x4.splat']
+['f64x2.splat']
 ```
 
-#### SIMD lane extraction
-
-Examples:
+#### Lane extraction
 
 ```js
 ['i8x16.extract_lane_s', lane]
 ['i8x16.extract_lane_u', lane]
-
-['i16x8.extract_lane_s', lane]
-['i16x8.extract_lane_u', lane]
-
 ['i32x4.extract_lane', lane]
-['i64x2.extract_lane', lane]
-
 ['f32x4.extract_lane', lane]
-['f64x2.extract_lane', lane]
+// etc.
 ```
 
-#### SIMD lane replacement
+#### Lane replacement
 
-Lane replacement is available for the supported SIMD shapes:
-
-```text
-i8x16.replace_lane
-i16x8.replace_lane
-i32x4.replace_lane
-i64x2.replace_lane
-f32x4.replace_lane
-f64x2.replace_lane
+```js
+['i8x16.replace_lane', lane]
+['i32x4.replace_lane', lane]
+// etc.
 ```
 
-#### SIMD shuffle
-
-Shuffle uses 16 immediate lane values:
+#### Shuffle
 
 ```js
 ['i8x16.shuffle', <16 lane bytes>]
 ```
 
-#### SIMD bitselect
+#### Bitselect
 
 ```js
 ['v128.bitselect']
 ```
 
-The stack order is:
+Stack order: `a`, `b`, `mask` (mask is on top).
 
-```text
-a
-b
-mask
-```
-
-The mask is the top operand.
-
-#### SIMD memory operations
-
-Load:
+#### SIMD loads and stores
 
 ```js
 ['v128.load', memarg]
-```
-
-Store:
-
-```js
 ['v128.store', memarg]
 ```
 
@@ -1540,35 +943,18 @@ Lane stores:
 ['v128.store64_lane', memarg, lane]
 ```
 
-Splat loads include:
+#### SIMD arithmetic
+
+All standard SIMD names work:
 
 ```text
-v128.load8_splat
-v128.load16_splat
-v128.load32_splat
-v128.load64_splat
+i8x16.add    i8x16.sub    i16x8.mul
+f32x4.add    f32x4.sub    f32x4.mul
+i32x4.dot_i16x8_s
+v128.and     v128.or      v128.xor
 ```
 
-Extension loads include:
-
-```text
-v128.load8x8_s
-...
-```
-
-#### SIMD lane bounds
-
-Lane indices are immediate arguments.
-
-Example:
-
-```js
-['v128.load8_lane', memarg, 3]
-```
-
-The lane is not a stack value.
-
-The valid lane ranges are:
+#### Lane bounds
 
 ```text
 i8x16   0..15
@@ -1579,172 +965,134 @@ f32x4   0..3
 f64x2   0..1
 ```
 
-#### SIMD arithmetic
+#### Relaxed SIMD (experimental)
 
-Standard **SIMD** instruction names are supported, including:
+These instructions are added to the builder. The engine may not support them yet.
 
 ```text
-i8x16.add
-i8x16.sub
-i16x8.mul
-f32x4.add
-i32x4.dot_i16x8_s
+f32x4.relaxed_min              f32x4.relaxed_max
+f64x2.relaxed_min              f64x2.relaxed_max
+i32x4.relaxed_trunc_f32x4_s    i32x4.relaxed_trunc_f32x4_u
+i32x4.relaxed_trunc_f64x2_s_zero   i32x4.relaxed_trunc_f64x2_u_zero
+i16x8.relaxed_dot_i8x16_i7x16_s    i16x8.relaxed_dot_i8x16_u7x16_u
+i16x8.relaxed_dot_add_i32_i16x8_s  i16x8.relaxed_dot_add_i32_i16x8_u
+i32x4.relaxed_madd            i32x4.relaxed_nmadd
+f32x4.relaxed_madd            f32x4.relaxed_nmadd
+f64x2.relaxed_madd            f64x2.relaxed_nmadd
 ```
 
-The complete supported set depends on the instruction names implemented by
-the builder and the WebAssembly features enabled by the build.
+---
 
-#### Integer arithmetic
+### Integer arithmetic
 
-Common `i32` operations include:
+#### i32
 
 ```text
-i32.add
-i32.sub
-i32.mul
-
-i32.div_s
-i32.div_u
-
-i32.rem_s
-i32.rem_u
-
-i32.and
-i32.or
-i32.xor
-
-i32.shl
-i32.shr_s
-i32.shr_u
-
-i32.rotl
-i32.rotr
-
-i32.eqz
-i32.clz
-i32.ctz
-i32.popcnt
+i32.add    i32.sub    i32.mul
+i32.div_s  i32.div_u
+i32.rem_s  i32.rem_u
+i32.and    i32.or     i32.xor
+i32.shl    i32.shr_s  i32.shr_u
+i32.rotl   i32.rotr
+i32.eqz    i32.clz    i32.ctz    i32.popcnt
 ```
 
-#### Integer comparisons
-
-i32 comparisons include:
+#### i32 comparisons
 
 ```text
-i32.eq
-i32.ne
-i32.lt_s
-i32.lt_u
-i32.gt_s
-i32.gt_u
-i32.le_s
-i32.le_u
-i32.ge_s
-i32.ge_u
+i32.eq     i32.ne
+i32.lt_s   i32.lt_u
+i32.gt_s   i32.gt_u
+i32.le_s   i32.le_u
+i32.ge_s   i32.ge_u
 ```
 
-Equivalent instruction families exist for supported i64 operations.
+The same families exist for `i64`.
 
-#### Floating point operations
+---
 
-Examples:
+### Floating point
 
 ```text
-f32.abs
-f32.neg
-f32.ceil
-f32.floor
-f32.trunc
-f32.nearest
-f32.sqrt
-f32.min
-f32.max
+f32.abs    f32.neg    f32.ceil
+f32.floor  f32.trunc  f32.nearest
+f32.sqrt   f32.min    f32.max
 f32.copysign
 ```
 
-#### Numeric conversions
+Same for `f64`.
 
-Examples:
+---
 
-```text
-f64.demote_f32
-f32.convert_i32_s
-i32.trunc_f64_s
-i64.extend_i32_u
-i32.wrap_i64
-```
-
-#### Numeric reinterpretation
-
-Examples:
+### Conversions
 
 ```text
-i64.reinterpret_f64
-f64.reinterpret_i64
+f64.demote_f32       f32.convert_i32_s
+i32.trunc_f64_s      i64.extend_i32_u
+i32.wrap_i64         i64.trunc_f64_s
+i32.reinterpret_f32  f64.reinterpret_i64
 ```
 
-#### Atomic instructions
+---
 
-Atomic instructions require shared memory.
+### Atomic instructions
 
-Atomic loads include:
+Atomic instructions need shared memory.
+
+#### Atomic loads
 
 ```text
-i32.atomic.load
-i64.atomic.load
-i32.atomic.load8_u
-...
+i32.atomic.load      i64.atomic.load
+i32.atomic.load8_u   i32.atomic.load16_u
+i64.atomic.load8_u   i64.atomic.load16_u   i64.atomic.load32_u
 ```
 
-Atomic stores include:
+#### Atomic stores
 
 ```text
-i32.atomic.store
-i64.atomic.store
-...
+i32.atomic.store     i64.atomic.store
+i32.atomic.store8_u  i32.atomic.store16_u
+i64.atomic.store8_u  i64.atomic.store16_u  i64.atomic.store32_u
 ```
 
-Atomic read-modify-write operations include:
+#### Atomic read-modify-write
 
 ```text
-i32.atomic.add
-i32.atomic.sub
-i32.atomic.and
-i32.atomic.or
-i32.atomic.xor
-i32.atomic.xchg
-i32.atomic.cmpxchg
+i32.atomic.add      i32.atomic.sub
+i32.atomic.and      i32.atomic.or       i32.atomic.xor
+i32.atomic.xchg     i32.atomic.cmpxchg
 ```
 
-Other atomic instructions include:
+Same for `i64`.
+
+#### Other atomics
 
 ```text
 memory.atomic.notify
 memory.atomic.wait32
 memory.atomic.wait64
-atomic.fence
+memory.atomic.fence
 ```
 
-#### Atomic instruction names
+#### Acquire-release atomics (experimental)
 
-The builder uses names such as:
+These use the same opcodes as regular atomics. The builder encodes them, but the engine may not support them yet.
 
 ```text
-i32.atomic.add
-i32.atomic.cmpxchg
+i32.atomic.load.acquire       i32.atomic.store.release
+i64.atomic.load.acquire       i64.atomic.store.release
+i32.atomic.load8_u.acquire    i32.atomic.store8_u.release
+i32.atomic.load16_u.acquire   i32.atomic.store16_u.release
+i64.atomic.load8_u.acquire    i64.atomic.store8_u.release
+i64.atomic.load16_u.acquire   i64.atomic.store16_u.release
+i64.atomic.load32_u.acquire   i64.atomic.store32_u.release
 ```
 
-It does not use an `.rmw.` part in these names.
+---
 
-#### Atomic memory ordering
+### Exception handling
 
-This builder does not encode *memory* order arguments.
-Atomic operations are emitted as sequentially consistent.
-The encoder also checks natural alignment for atomic operations.
-
-#### Exception tags
-
-Create a tag from a signature:
+#### Tags
 
 ```js
 const tag = mb.AddTag({
@@ -1753,66 +1101,72 @@ const tag = mb.AddTag({
 });
 ```
 
-An existing type index can also be reused:
+Or reuse an existing type:
 
 ```js
-const tag = mb.AddTag(t);
+const tag = mb.AddTag(typeIndex);
 ```
 
 #### Throw
-
-Throw a tag:
 
 ```js
 ['throw', tagRef]
 ```
 
-The tag payload parameters are consumed from the stack.
+The tag's parameters are consumed from the stack.
 
 #### Throw reference
-
-Throw an exception reference:
 
 ```js
 ['throw_ref']
 ```
 
-#### Try and catch
-
-Basic form:
+#### Try / catch / catch_all
 
 ```js
-[
-  ['try', <blocktype>],
+['try', <blocktype>]
   ...
-  ['catch', tagRef],
+['catch', tagRef]
   ...
-  ['end']
-]
+['end']
 ```
 
-Catch all:
+```js
+['try', <blocktype>]
+  ...
+['catch_all']
+  ...
+['end']
+```
+
+#### Catch ref / catch all ref
+
+`catch_ref` pushes the tag payload plus an `exnref`:
 
 ```js
-[
-  ['try', <blocktype>],
+['try', <blocktype>]
   ...
-  ['catch_all'],
+['catch_ref', tagRef]
   ...
-  ['end']
-]
+['end']
+```
+
+`catch_all_ref` pushes just the `exnref`:
+
+```js
+['try', <blocktype>]
+  ...
+['catch_all_ref']
+  ...
+['end']
 ```
 
 #### Delegate
 
-Delegate from a try block:
-
 ```js
-[
-  ['try', <blocktype>],
+['try', <blocktype>]
   ...
-  ['delegate', <depth>]
-]
+['delegate', <depth>]
 ```
 
 #### Rethrow
@@ -1825,97 +1179,142 @@ The depth counts enclosing try/catch frames.
 
 #### Try table
 
-A try table is one instruction:
-
 ```js
-[
-  'try_table',
-  <blocktype>,
-  catches
-]
+['try_table', <blocktype>, catches]
 ```
 
-Each catch entry has this form:
+Each catch entry:
 
 ```text
 [tagRef | 'all', depth, captureExnRef?]
 ```
 
-Example:
+Example with all catch types:
 
 ```js
-[
-  'try_table',
-  {
-    params: [],
-    results: ['i32']
-  },
+['try_table',
+  { params: [], results: ['i32'] },
   [
-    [tagIndex, 0],
-    ['all', 0],
-    [tagIndex, 0, true]
+    [tagIndex, 0],         // catch
+    ['all', 0],            // catch_all
+    [tagIndex, 0, true]    // catch_ref
   ]
 ]
 ```
 
-#### Try table catch depth
+---
 
-Catch depth is relative to frames outside the try table.
+### Wide arithmetic (experimental)
 
-Depth zero refers to the frame immediately outside the try table.
-
-The catch payload must match the target label types.
-
-#### Try and delegate restrictions
-
-The builder verifies that `delegate` appears inside a try block, and
-`catch` pushes the tag payload values onto the stack.
-
-An outer try with results is not rejected by the builder; that validation
-is left to the WebAssembly engine.
-
-#### Data segments
-
-Create an active data segment:
+These instructions give you wider integer operations. The builder encodes them, but SpiderMonkey may not support them yet.
 
 ```js
-mb.AddDataSegment({
-  offset: 0,
-  data: [1, 2, 3, 4]
-});
+['i32.wide_mul_s']    // signed i32 x i32 -> i64
+['i32.wide_mul_u']    // unsigned i32 x i32 -> i64
+['i64.wide_mul_s']    // signed i64 x i64 -> i64:i64 (hi, lo)
+['i64.wide_mul_u']    // unsigned i64 x i64 -> i64:i64 (hi, lo)
+['i64.wide_add_s']    // signed i64 + i64 + carry -> carry:sum
+['i64.wide_add_u']    // unsigned i64 + i64 + carry -> carry:sum
+['i64.wide_sub_s']    // signed i64 - i64 - borrow -> borrow:diff
+['i64.wide_sub_u']    // unsigned i64 - i64 - borrow -> borrow:diff
 ```
 
-A `Uint8Array` can also be used:
+---
+
+### Start section
+
+Set a function to run when the module loads:
 
 ```js
-mb.AddDataSegment({
-  offset: 0,
-  data: new Uint8Array([1, 2, 3, 4])
-});
+mb.AddStart(funcRef);
 ```
 
-#### Passive data segments
+The start function must take no arguments and return nothing.
 
-Create a passive segment:
+---
+
+### Custom sections
+
+Add any named section to the binary:
 
 ```js
-mb.AddDataSegment({
-  passive: true,
-  data: [9, 9]
-});
+mb.AddCustomSection('my.section', [0x01, 0x02, 0x03]);
 ```
 
-#### Data segment shorthand
+You can add multiple custom sections. They go at the end of the binary, after the name section.
 
-The shorthand form is:
+---
+
+### Name section (debug names)
+
+Give functions, locals, globals, tables, memories, and tags readable names:
+
+```js
+mb.SetFunctionName('myfunc', 'TheRealName');
+mb.SetLocalName('myfunc', 0, 'input');
+mb.SetLocalName('myfunc', 1, 'temp');
+mb.SetGlobalName(0, 'counter');
+mb.SetTableName(0, 'myTable');
+mb.SetMemoryName(0, 'mainMem');
+mb.SetTagName(0, 'overflow');
+mb.SetLabelName('myfunc', 0, 'outer_block');
+```
+
+These names go into a standard "name" custom section. Tools like `wasm-objdump` and browser DevTools can read them.
+
+---
+
+### Compilation hints (experimental)
+
+Store a per-function compilation hint in a custom section:
+
+```js
+mb.SetCompilationHint('myFunc', 'tier-up');
+```
+
+---
+
+### Relaxed dead code
+
+The builder skips instructions that appear after the outermost `end`. The old behavior was to reject them. Now they are silently ignored.
+
+```js
+f.Body([
+  ['i32.const', 42],
+  ['end'],   // these are ignored, no error
+  ['nop'],
+  ['drop'],
+]);
+```
+
+---
+
+### Data segments
+
+Active:
+
+```js
+mb.AddDataSegment({ offset: 0, data: [1, 2, 3, 4] });
+mb.AddDataSegment({ offset: 0, data: new Uint8Array([1, 2, 3, 4]) });
+```
+
+Passive:
+
+```js
+mb.AddDataSegment({ passive: true, data: [9, 9] });
+```
+
+Shorthand:
 
 ```js
 mb.AddDataSegment(0, [1, 2, 3, 4]);
 ```
 
-#### Element segments
+---
 
-Active element segment:
+### Element segments
+
+Active:
 
 ```js
 mb.AddElemSegment({
@@ -1925,7 +1324,7 @@ mb.AddElemSegment({
 });
 ```
 
-Passive element segment:
+Passive:
 
 ```js
 mb.AddElemSegment({
@@ -1934,7 +1333,7 @@ mb.AddElemSegment({
 });
 ```
 
-Declared element segment:
+Declared:
 
 ```js
 mb.AddElemSegment({
@@ -1943,9 +1342,7 @@ mb.AddElemSegment({
 });
 ```
 
-#### Expression element segments
-
-Active expression segment:
+With expressions:
 
 ```js
 mb.AddElemSegment({
@@ -1954,11 +1351,7 @@ mb.AddElemSegment({
   exprs: [['ref.func', 0]],
   element: 'funcref'
 });
-```
 
-Passive expression segment:
-
-```js
 mb.AddElemSegment({
   passive: true,
   exprs: [['ref.null', 'func']],
@@ -1966,452 +1359,130 @@ mb.AddElemSegment({
 });
 ```
 
-#### Encoding
+---
 
-Encode the module:
-
-```js
-const bytes = mb.Encode(); 
-```
-
-The result is a Uint8Array containing the WebAssembly module bytes.
-
-Compile and instantiate with the host engine:
+### Encoding and compiling
 
 ```js
-const module = mb.Compile();
-const instance = mb.Instantiate({ imports });
+const bytes = mb.Encode();     // Uint8Array
+const hex = mb.Hex();          // lowercase hex string
+const mod = mb.Compile();      // WebAssembly.Module
+const inst = mb.Instantiate(); // WebAssembly.Instance
 ```
 
+---
 
-#### Hex output
-
-Get the module bytes as a lowercase hexadecimal string:
-
-```js
-const hex = mb.Hex();
-```
-
-#### Module summary
-
-Get a summary:
+### Module summary
 
 ```js
 const sum = mb.Summary();
 ```
 
-The summary contains counts for:
+Returns counts for: types, funcImports, funcDefs, tableImports, tableDefs, memImports, memDefs, globalImports, globalDefs, tagImports, tagDefs, elems, datas, exports.
+
+---
+
+### How validation works
+
+The builder checks your module before the engine ever sees it. If anything is wrong, you get a `CompilationFailed` error with a clear message and the line of code that caused it.
+
+The builder checks:
 
 ```text
-types
-funcImports
-funcDefs
-tableImports
-tableDefs
-memImports
-memDefs
-globalImports
-globalDefs
-tagImports
-tagDefs
-elems
-datas
-exports
+duplicate names
+out-of-range indexes
+wrong argument counts
+stack type mismatches
+invalid memory alignment
+invalid limits
+bad block types
+missing end markers
 ```
 
-There is *an* example:
+If the builder accepts your module but the engine rejects it, there is a bug in the builder or the engine.
+
+---
+
+### Full example
+
 ```js
 load("WasmBuilder.js");
 
 const mb = new WasmModuleBuilder();
 
-/*
- * Function type:
- * () -> i32
- */
-const type = mb.AddType({
-    params: [],
-    results: ['i32']
-});
-
-/*
- * Function that returns 0x1337.
- */
-const target = mb.AddFunction("target", type);
-
-target.Body([
-    ['i32.const', 0x4444444]
-]);
-
-/*
- * funcref table:
- *
- * index 0
- * index 1
- */
-const table = mb.AddTable('funcref', 2, 2);
-
-/*
- * Put target into table[0].
- */
-mb.AddElemSegment({
-    table: table,
-    offset: 0,
-    indices: [target]
-});
-
-/*
- * Test function:
- */
-const run = mb.AddFunction("run", {
-    params: [],
-    results: ['i32']
-});
-
-run.Body([
-
-    /*
-     * table.set(table, index, ref)
-     *
-     * table[1] = target
-     */
-    ['i32.const', 1],
-    ['ref.func', target],
-    ['table.set', table],
-
-    /*
-     * table.get(table, index)
-     *
-     * Retrieve table[1].
-     *
-     * The returned `funcref` is dropped because the
-     * next operation will independently use the table.
-     */
-    ['i32.const', 1],
-    ['table.get', table],
-    ['drop'],
-
-    /*
-     * table.fill(table, start, value, length)
-     *
-     * Fill:
-     *
-     * table[0] = target
-     * table[1] = target
-     */
-    ['i32.const', 0],
-    ['ref.func', target],
-    ['i32.const', 2],
-    ['table.fill', table],
-
-    /*
-     * call_indirect(type, table)
-     *
-     * index = 1
-     *
-     * table[1] now contains target.
-     */
-    ['i32.const', 1],
-    ['call_indirect', type, table]
-]);
-
-run.ExportAs("run");
-
-
-print("Summary();");
-print(JSON.stringify(mb.Summary()));
-
-print("Hex();");
-const hex = mb.Hex();
-print(hex);
-
-const wasmModule = new WebAssembly.Module(mb.Encode());
-const instance = new WebAssembly.Instance(wasmModule, {});
-
-print("Expected!");
-print(instance.exports.run());
-
-/*
-Summary();
-{"types":1,
-"funcImports":0,
-"funcDefs":2,
-"tableImports":0,
-"tableDefs":1,
-"memImports":0,
-"memDefs":0,
-"globalImports":0,
-"globalDefs":0,
-"tagImports":0,
-"tagDefs":0,
-"elems":1,
-"datas":0,
-"exports":1}
-
-Hex();
-0061736d010000000105016000017f0303020000040501700102020707010372756e00010907010041000b01000a2502070041c48891220b1b004101d2002600410125001a4100d2004102fc110041011100000b
-Expected!
-71582788
-*/
-```
-
-#### Compiling a module
-
-Compile encoded bytes with the WebAssembly JavaScript API:
-
-```js
-const module = new WebAssembly.Module(mb.Encode());
-```
-
-#### Instantiating a module
-
-Create an instance:
-
-```js
-const instance = new WebAssembly.Instance(
-  module,
-  imports
-);
-```
-
-For a module without imports:
-
-```js
-const instance = new WebAssembly.Instance(
-  new WebAssembly.Module(mb.Encode()),
-  {}
-);
-```
-
-#### Calling an export
-
-Call an exported function:
-
-```js
-const result = instance.exports.someFunc(...);
-```
-
-#### Builder errors
-
-Validation has one face: **CompilationFailed**.
-
-Invalid builder input is rejected by the CompilationChecker before the module
-ever reaches the engine, and it reports like this:
-
-```text
-CompilationFailed: function "bad":
-TypeError: expected type i32, got f64.
-
-@Stack:
-test.js:23:5
-```
-
-Examples the checker rejects:
-
-```text
-duplicate names
-out-of-range indexes
-invalid memory alignment
-stack type mismatch
-wrong argument counts
-invalid limits
-other invalid builder input
-```
-
-Instruction argument counts are validated universally before encoding, every
-op's immediate *arity* is checked up front by the checker (mirroring the
-encoder), so malformed instructions like `['local.get']` are rejected with a
-precise message and attribution, never silently encoded or left to fall.
-This covers the opcode only families too (numeric, comparison and
-conversion ops take zero immediates, so `['i32.add', 1]` is rejected rather
-than silently encoded), as well as `table.size`/`grow`/`fill`.
-
-There is no second validation category, note, `InternalError` exists only as a
-**bug detector**, when the builder itself *fails* to validate something it should
-have caught, the original error propagates unchanged with its real stack.
-
-#### Builder and engine are separate
-
-Engine errors are never wrapped. `Compile()` and `Instantiate()` call the
-engine directly, so if the engine rejects a module its own error surfaces
-raw, with its own message and stack. If a module passes the bounds-check,
-and the engine still rejects it, that means there is a bug in the builder
-or *maybe* in the engine.
-
-So this *graph* simulates the test path:
-```text 
-Testcase:
-└─ ModuleBuilder.js
-  └─ Builds WebAssembly Module Definition
-  └─ mb.Encode()
-    └─ CompilationChecker rejects bad modules before the engine
-    └─ Encodes Module Definition Into WebAssembly bytecode 
-      └─ WebAssembly.Module
-        └─ SpiderMonkey Validates WebAssembly bytecode 
-          └─Validation
-            └─ JS Engine bytecode Level Validation
-              └─ Compilation
-               └─ Creates Executable Module Instance
-                 └─ Instantiation
-                   └─ Invokes Exported Functions / Runs WebAssembly
-                     └─ Execution
-                                      
-```
-
-
-
-#### Complete module example
-
-Load the builder:
-
-```js
-load("..WasmBuilder.js..");
-```
-
-Create the module:
-
-```js
-const mb = new WasmModuleBuilder();
-```
-
-Add memory:
-
-```js
-mb.AddMemory({initial: 1});
+// Add memory
+mb.AddMemory({ initial: 1 });
 mb.ExportMemory(0, "memory");
-```
 
-Add a mutable global:
-
-```js
+// Add a mutable global
 mb.AddGlobal('i32', 10, true);
-```
 
-Create an imported function type:
-
-```js
+// Import a function
 const logType = mb.AddType({
   params: ['i32'],
   results: []
 });
-```
+mb.AddImport('env', 'log', {
+  kind: 'function',
+  type: logType
+});
 
-Add the import:
-
-```js
-mb.AddImport(
-  'env',
-  'log',
-  {
-    kind: 'function',
-    type: logType
-  }
-);
-```
-
-Create the function:
-
-```js
+// Create a function
 const f = mb.AddFunction("bump", {
   params: [],
   results: ['i32']
 });
-```
 
-Set its body:
-
-```js
 f.Body([
   ['global.get', 0],
-
   ['i32.const', 1],
   ['i32.add'],
-
   ['global.set', 0],
-
   ['i32.const', 0],
   ['global.get', 0],
   ['i32.store', 0],
-
   ['global.get', 0],
-
   ['end'],
 ]);
-```
 
-Export it:
-
-```js
 f.ExportAs("bump");
-```
 
-Create the instance:
-
-```js
 const instance = new WebAssembly.Instance(
   new WebAssembly.Module(mb.Encode()),
   {
     env: {
       log: function (x) {
-        /* host import */
+        // host function
       }
     }
   }
 );
+
+print(instance.exports.bump()); // 11
 ```
 
-Call it:
+---
 
-```js
-print(instance.exports.bump());
+### Error flow
+
+```text
+Testcase
+└─ WasmBuilder.js
+  └─ Builds module definition
+  └─ mb.Encode()
+    └─ CompilationChecker rejects bad modules before the engine
+    └─ Encodes to WebAssembly bytes
+      └─ WebAssembly.Module
+        └─ SpiderMonkey validates
+          └─ Compilation
+            └─ Creates executable module
+              └─ Instance
+                └─ Runs your exports
 ```
 
+---
 
-#### Exported memory inspection
-
-The exported memory can be inspected from JavaScript:
-
-```js
-const view = new DataView(
-  instance.exports.memory.buffer
-);
-
-print(view.getUint32(0, true));
-```
-
-The example stores the global value at memory address zero.
-
-#### Memory64 host values
-
-Use BigInt when working with i64 values.
-
-Examples:
-
-```js
-0n
-123456789n
-```
-
-Memory64 is selected with:
-
-```js
-addressType: 'i64'
-```
-
-The supplied test notes state that memory64 modules can address up to 4 GiB
-in this build.
-
-#### Unsupported memory.discard
-
-The supplied SpiderMonkey build rejects `memory.discard`.
-
-
-# References:
-
-Use the provided specification when checking instruction behavior, types, validation
-rules, module sections, and binary encoding.
-
-#### External WebAssembly reference
+### References
 
 - https://webassembly.org/
 - https://developer.mozilla.org/en-US/docs/WebAssembly
@@ -2421,8 +1492,7 @@ rules, module sections, and binary encoding.
 - https://wasi.dev/
 - https://webassembly.github.io/spec/
 
+---
 
-
-*** *[END OF THE DOCUMENTATION]* ***    
-*** *[ Author: **shujaqureshiii ( 0x42fc) ** ]* ***     
-*** [ If you find any type of bug, please report! ]* ***      
+***END OF DOCUMENTATION***
+***Author: shujaqureshiii (0x42fc)***
