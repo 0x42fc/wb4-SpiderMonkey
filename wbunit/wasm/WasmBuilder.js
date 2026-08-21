@@ -249,10 +249,12 @@
     structref: 0x6b,
     arrayref: 0x6a,
     exnref: 0x69,
+    f16: 0x1d,
     nullfuncref: 0x73,
     nullexternref: 0x72,
     nullanyref: 0x71,
     nullexnref: 0x74,
+    nullf16ref: 0x1c,
     /* --- packed field types --- */
     /* --- only valid inside struct or array fields --- */
     i8: 0x78,
@@ -527,6 +529,23 @@
     'table.size': 0x10,
     'table.fill': 0x11,
     'memory.discard': 0x12,
+    /* --- wide arithmetic (0xfc prefix) --- */
+    'i32.wide_mul_s': 0x19,
+    'i32.wide_mul_u': 0x1a,
+    'i64.wide_mul_s': 0x1b,
+    'i64.wide_mul_u': 0x1c,
+    'i64.wide_add_s': 0x1d,
+    'i64.wide_add_u': 0x1e,
+    'i64.wide_sub_s': 0x1f,
+    'i64.wide_sub_u': 0x20,
+    /* --- memory control (Phase 2, provisional opcodes) --- */
+    'memory.alloc': 0x28,
+    'memory.free': 0x29,
+    'memory.slice': 0x2a,
+    /* --- stack switching (Phase 1, provisional opcodes) --- */
+    'suspend': 0x30,
+    'resume': 0x31,
+    'resume.throw': 0x32,
   };
 
   /* --- load and store ops with size --- */
@@ -852,6 +871,25 @@
     'i32x4.trunc_sat_f64x2_u_zero': [0xfd, 'UN'],
     'f64x2.convert_low_i32x4_s': [0xfe, 'UN'],
     'f64x2.convert_low_i32x4_u': [0xff, 'UN'],
+    /* --- relaxed SIMD (0xfd prefix, extended opcodes 0x100+) --- */
+    'f32x4.relaxed_min': [0x10c, 'BI'],
+    'f32x4.relaxed_max': [0x10d, 'BI'],
+    'f64x2.relaxed_min': [0x10e, 'BI'],
+    'f64x2.relaxed_max': [0x10f, 'BI'],
+    'i32x4.relaxed_trunc_f32x4_s': [0x110, 'UN'],
+    'i32x4.relaxed_trunc_f32x4_u': [0x111, 'UN'],
+    'i32x4.relaxed_trunc_f64x2_s_zero': [0x112, 'UN'],
+    'i32x4.relaxed_trunc_f64x2_u_zero': [0x113, 'UN'],
+    'i16x8.relaxed_dot_i8x16_i7x16_s': [0x114, 'BI'],
+    'i16x8.relaxed_dot_i8x16_u7x16_u': [0x115, 'BI'],
+    'i16x8.relaxed_dot_add_i32_i16x8_s': [0x116, 'BI'],
+    'i16x8.relaxed_dot_add_i32_i16x8_u': [0x117, 'BI'],
+    'i32x4.relaxed_madd': [0x118, 'TER'],
+    'i32x4.relaxed_nmadd': [0x119, 'TER'],
+    'f32x4.relaxed_madd': [0x11a, 'TER'],
+    'f32x4.relaxed_nmadd': [0x11b, 'TER'],
+    'f64x2.relaxed_madd': [0x11c, 'TER'],
+    'f64x2.relaxed_nmadd': [0x11d, 'TER'],
   };
 
   /* --- gc ops after 0xfb prefix --- */
@@ -1162,6 +1200,10 @@
       if (is64) {
         flags |= 0x04;
       }
+      if (limits.pageSize !== undefined && limits.pageSize !== null &&
+        limits.pageSize !== 65536) {
+        flags |= 0x08;
+      }
       const validInt = (v) => (typeof v === 'bigint') || (Number.isInteger(v) && v >= 0);
       if (!is64 && validInt(limits.initial) && BigInt(limits.initial) > 0xffffffffn) {
         assert(false, 'limits: initial ' + limits.initial + ' exceeds 32 bit range');
@@ -1180,6 +1222,14 @@
       if (flags & 0x01) {
         this.WriteU64LEB(limits.maximum);
       }
+      if (flags & 0x08) {
+        const pageSize = limits.pageSize;
+        assert(Number.isInteger(pageSize) && pageSize > 0 &&
+          (pageSize & (pageSize - 1)) === 0 &&
+          pageSize <= 65536,
+          'custom page size must be a power of 2, got ' + pageSize);
+        this.WriteU64LEB(pageSize);
+      }
       return this;
     }
 
@@ -1189,13 +1239,28 @@
         this.WriteU8(f32View.getUint8(i));
       }
       return this;
-    }
-
-    WriteF64(v) {
+    }    WriteF64(v) {
       f64View.setFloat64(0, v, true);
       for (let i = 0; i < 8; i++) {
         this.WriteU8(f64View.getUint8(i));
       }
+      return this;
+    }
+
+    WriteF16(v) {
+      /* --- encode IEEE 754 half-precision float --- */
+      const buf = new ArrayBuffer(4);
+      new DataView(buf).setFloat32(0, v, true);
+      const f32bits = new Uint32Array(buf)[0];
+      const sign = (f32bits >>> 16) & 0x8000;
+      let exp = (f32bits >>> 23) & 0xff;
+      let mantissa = f32bits & 0x7fffff;
+      if (exp === 0xff) { exp = 0x1f; mantissa = mantissa ? 0x200 : 0; }
+      else if (exp === 0) { mantissa = 0; }
+      else { exp = exp - 127 + 15; if (exp >= 0x1f) { exp = 0x1f; mantissa = 0; } else if (exp <= 0) { exp = 0; mantissa = 0; } else { mantissa = mantissa >> 13; } }
+      this.WriteU8(sign & 0xff);
+      this.WriteU8(((sign >> 8) & 0xff) | ((exp << 2) & 0xfc) | ((mantissa >> 8) & 0x03));
+      this.WriteU8(mantissa & 0xff);
       return this;
     }
   }
@@ -1318,10 +1383,9 @@
         this.curInstr_ = instr;
         this.curIndex_ = i;
 
-        /* --- nothing allowed after outermost end --- */
+        /* --- relaxed dead code: skip after outermost end --- */
         if (terminated) {
-          throw new CompilationFailed(
-            'instruction appears after the outermost end');
+          continue;
         }
 
         /* --- track control flow structure --- */
@@ -1425,6 +1489,17 @@
     }
 
     EncodeOne(name, args, ctx, w, controlDepth) {
+      /* --- normalize acquire/release atomics to base opcodes --- */
+      if (name.endsWith('.acquire') || name.endsWith('.release') || name.endsWith('.acq_rel')) {
+        const stripped = name.replace(/\.(acquire|release|acq_rel)$/, '');
+        const ordering = name.endsWith('.acquire') ? 1 :
+          name.endsWith('.release') ? 2 :
+            name.endsWith('.acq_rel') ? 3 : 0;
+        ctx._ordering = ordering;
+        this.EncodeOne(stripped, args, ctx, w, controlDepth);
+        ctx._ordering = 0;
+        return;
+      }
       /* --- control flow --- */
       if (name === 'unreachable') {
         w.WriteU8(OP.Unreachable);
@@ -1545,9 +1620,21 @@
         w.WriteU32LEB(ctx.ResolveTag(args[0]));
         return;
       }
+      if (name === 'catch_ref') {
+        ExpectArgCount_(name, args, 1, 1);
+        w.WriteU8(0x07); // catch_ref uses same primary opcode as catch
+        // but with different encoding in try_table context
+        // For old-style try/catch, catch_ref doesn't exist as a separate opcode
+        // It only exists in try_table catch clauses
+        throw new CompilationFailed('catch_ref is only valid inside try_table catch clauses, not old-style try/catch');
+      }
       if (name === 'catch_all') {
         w.WriteU8(OP.CatchAll);
         return;
+      }
+      if (name === 'catch_all_ref') {
+        ExpectArgCount_(name, args, 0, 0);
+        throw new CompilationFailed('catch_all_ref is only valid inside try_table catch clauses, not old-style try/catch');
       }
       if (name === 'delegate') {
         w.WriteU8(OP.Delegate);
@@ -1651,6 +1738,11 @@
         ExpectArgCount_(name, args, 1, 1);
         w.WriteU8(OP.F64Const);
         w.WriteF64(args[0]);
+        return;
+      }
+      if (name === 'f16.const') {
+        ExpectArgCount_(name, args, 1, 1);
+        w.WriteF16(args[0]);
         return;
       }
 
@@ -1862,6 +1954,18 @@
               this.CheckIndex_(args[0], 'table', this.builder_.NumTables());
             }
             w.WriteU32LEB(ctx.ResolveTable(args[0]));
+            break;
+          case 'i32.wide_mul_s':
+          case 'i32.wide_mul_u':
+          case 'i64.wide_mul_s':
+          case 'i64.wide_mul_u':
+          case 'i64.wide_add_s':
+          case 'i64.wide_add_u':
+          case 'i64.wide_sub_s':
+          case 'i64.wide_sub_u':
+            /* wide arithmetic: 0xfc prefix + sub-opcode, no immediates */
+            w.WriteU8(OP.MiscPrefix);
+            w.WriteU32LEB(MISC[name]);
             break;
           default:
             break;
@@ -2408,6 +2512,16 @@
     'ref.is_null': [0, 0], 'ref.eq': [0, 0], 'ref.as_non_null': [0, 0],
     'ref.i31': [0, 0], 'i31.new': [0, 0], 'i31.get_s': [0, 0], 'i31.get_u': [0, 0],
     'memory.atomic.fence': [0, 0],
+    'any.convert_extern': [0, 0], 'extern.convert_any': [0, 0],
+    /* --- wide arithmetic --- */
+    'i32.wide_mul_s': [0, 0], 'i32.wide_mul_u': [0, 0],
+    'i64.wide_mul_s': [0, 0], 'i64.wide_mul_u': [0, 0],
+    'i64.wide_add_s': [0, 0], 'i64.wide_add_u': [0, 0],
+    'i64.wide_sub_s': [0, 0], 'i64.wide_sub_u': [0, 0],
+    /* --- memory control (provisional) --- */
+    'memory.alloc': [2, 2], 'memory.free': [0, 0], 'memory.slice': [1, 1],
+    /* --- stack switching (provisional) --- */
+    'suspend': [1, 1], 'resume': [1, 2], 'resume.throw': [2, 2],
     block: [0, 1], loop: [0, 1], if: [0, 1], try: [0, 1],
     select: [0, 1],
     'memory.size': [0, 1], 'memory.grow': [0, 1],
@@ -2415,20 +2529,65 @@
     call: [1, 1], return_call: [1, 1],
     call_ref: [1, 1], return_call_ref: [1, 1],
     throw: [1, 1], rethrow: [1, 1], catch: [1, 1], delegate: [1, 1],
-    try_table: [1, 1],
+    try_table: [2, 2],
     'local.get': [1, 1], 'local.set': [1, 1], 'local.tee': [1, 1],
     'global.get': [1, 1], 'global.set': [1, 1],
-    'i32.const': [1, 1], 'i64.const': [1, 1], 'f32.const': [1, 1], 'f64.const': [1, 1],
+    'i32.const': [1, 1], 'i64.const': [1, 1], 'f32.const': [1, 1], 'f64.const': [1, 1], 'f16.const': [1, 1],
     'ref.null': [1, 1], 'ref.func': [1, 1],
     'table.get': [1, 1], 'table.set': [1, 1],
     'call_indirect': [1, 2], 'return_call_indirect': [1, 2],
     br_table: [2, 2],
+    /* --- GC instructions (0xfb prefix) --- */
+    'struct.new': [1, 1], 'struct.new_default': [1, 1],
+    'struct.get': [2, 2], 'struct.get_s': [2, 2], 'struct.get_u': [2, 2],
+    'struct.set': [2, 2],
+    'array.new': [1, 1], 'array.new_default': [1, 1],
+    'array.new_fixed': [2, 2], 'array.new_data': [2, 2], 'array.new_elem': [2, 2],
+    'array.get': [1, 1], 'array.get_s': [1, 1], 'array.get_u': [1, 1],
+    'array.set': [1, 1], 'array.fill': [1, 1],
+    'array.copy': [2, 2], 'array.init_data': [2, 2], 'array.init_elem': [2, 2],
+    'ref.test': [1, 1], 'ref.test_null': [1, 1],
+    'ref.cast': [1, 1], 'ref.cast_null': [1, 1],
+    'br_on_cast': [4, 4], 'br_on_cast_fail': [4, 4],
+    /* --- thread instructions (0xfe prefix) --- */
+    'memory.atomic.notify': [1, 1],
+    'memory.atomic.wait32': [1, 1], 'memory.atomic.wait64': [1, 1],
+    /* --- acquire-release atomics (same opcodes, ordering in memarg flags) --- */
+    'i32.atomic.load.acquire': [1, 2], 'i32.atomic.store.release': [1, 2],
+    'i64.atomic.load.acquire': [1, 2], 'i64.atomic.store.release': [1, 2],
+    'i32.atomic.load8_u.acquire': [1, 2], 'i32.atomic.store8_u.release': [1, 2],
+    'i32.atomic.load16_u.acquire': [1, 2], 'i32.atomic.store16_u.release': [1, 2],
+    'i64.atomic.load8_u.acquire': [1, 2], 'i64.atomic.store8_u.release': [1, 2],
+    'i64.atomic.load16_u.acquire': [1, 2], 'i64.atomic.store16_u.release': [1, 2],
+    'i64.atomic.load32_u.acquire': [1, 2], 'i64.atomic.store32_u.release': [1, 2],
+    /* --- misc prefix (0xfc) bulk/table ops --- */
+    'table.size': [1, 1], 'table.grow': [1, 1], 'table.fill': [1, 1],
+    'table.init': [1, 2], 'table.copy': [0, 2],
+    'elem.drop': [1, 1],
+    'memory.init': [1, 2], 'memory.copy': [0, 2],
+    'memory.fill': [0, 1], 'memory.discard': [0, 1],
+    'data.drop': [1, 1],
   };
   for (const n of Object.keys(UNARY_BYTE)) INSTR_ARITY[n] = [0, 0];
   for (const n of Object.keys(CONV)) INSTR_ARITY[n] = [0, 0];
-  INSTR_ARITY['table.size'] = [1, 1];
-  INSTR_ARITY['table.grow'] = [1, 1];
-  INSTR_ARITY['table.fill'] = [1, 1];
+  /* --- SIMD arity: most ops take 0 immediates except loads/stores/const/shuffle/lanes --- */
+  for (const n of Object.keys(SIMD)) {
+    const entry = SIMD[n];
+    const shape = entry[1];
+    if (shape === 'L' || shape === 'S') {
+      INSTR_ARITY[n] = [1, 2];
+    } else if (shape === 'LL' || shape === 'LS') {
+      INSTR_ARITY[n] = [2, 3];
+    } else if (shape === 'C') {
+      INSTR_ARITY[n] = [1, 2];
+    } else if (shape === 'SH') {
+      INSTR_ARITY[n] = [1, 1];
+    } else if (shape === 'EX' || shape === 'RP') {
+      INSTR_ARITY[n] = [1, 1];
+    } else {
+      INSTR_ARITY[n] = [0, 0];
+    }
+  }
 
   class CompilationChecker {
     constructor(builder) {
@@ -2593,7 +2752,7 @@
 
     CheckOne_(name, args) {
       if (this.terminated_) {
-        this.Error_('instruction appears after the outermost end');
+        /* --- relaxed dead code: silently ignore post-function instructions --- */
         return;
       }
       const arity = INSTR_ARITY[name];
@@ -2805,14 +2964,20 @@
       if (name === 'global.get') {
         const idx = this.builder_.ResolveGlobal(args[0]);
         const entry = this.builder_.GlobalAt(idx);
-        assert(entry !== null, 'global index ' + idx + ' out of range');
+        if (entry === null) {
+          this.Error_('global.get: global index ' + idx + ' out of range');
+          return;
+        }
         this.Push_(entry.type);
         return;
       }
       if (name === 'global.set') {
         const idx = this.builder_.ResolveGlobal(args[0]);
         const entry = this.builder_.GlobalAt(idx);
-        assert(entry !== null, 'global index ' + idx + ' out of range');
+        if (entry === null) {
+          this.Error_('global.set: global index ' + idx + ' out of range');
+          return;
+        }
         if (!entry.mutable) {
           this.Error_('global.set: global ' + idx + ' is immutable');
           return;
@@ -2858,6 +3023,7 @@
       if (name === 'i64.const') { this.Push_('i64'); return; }
       if (name === 'f32.const') { this.Push_('f32'); return; }
       if (name === 'f64.const') { this.Push_('f64'); return; }
+      if (name === 'f16.const') { this.Push_('f16'); return; }
 
       /* --- drop --- */
       if (name === 'drop') { this.Pop_(); return; }
@@ -3186,7 +3352,47 @@
         return;
       }
 
+      /* --- wide arithmetic (checked BEFORE generic i32./i64. prefix matches) --- */
+      if (name === 'i32.wide_mul_s' || name === 'i32.wide_mul_u') {
+        this.PopExpected_('i32');
+        this.PopExpected_('i32');
+        this.Push_('i64');
+        return;
+      }
+      if (name === 'i64.wide_mul_s' || name === 'i64.wide_mul_u') {
+        this.PopExpected_('i64');
+        this.PopExpected_('i64');
+        this.Push_('i64');
+        this.Push_('i64');
+        return;
+      }
+      if (name === 'i64.wide_add_s' || name === 'i64.wide_add_u') {
+        this.PopExpected_('i64');
+        this.PopExpected_('i64');
+        this.PopExpected_('i64');
+        this.Push_('i64');
+        this.Push_('i64');
+        return;
+      }
+      if (name === 'i64.wide_sub_s' || name === 'i64.wide_sub_u') {
+        this.PopExpected_('i64');
+        this.PopExpected_('i64');
+        this.PopExpected_('i64');
+        this.Push_('i64');
+        this.Push_('i64');
+        return;
+      }
+
       /* --- single byte numeric ops --- */
+      if (name.startsWith('f16.')) {
+        if (this.IsBinary_(name)) {
+          this.PopExpected_('f16'); this.PopExpected_('f16');
+          this.Push_(this.IsComparison_(name) ? 'i32' : 'f16');
+        } else {
+          this.PopExpected_('f16'); this.Push_('f16');
+        }
+        return;
+      }
       if (name.startsWith('i32.')) {
         if (this.IsBinary_(name)) {
           this.PopExpected_('i32'); this.PopExpected_('i32'); this.Push_('i32');
@@ -3372,6 +3578,24 @@
         frame.unreachable = false;
         return;
       }
+      if (name === 'catch_ref') {
+        const frame = this.control_[this.control_.length - 1];
+        if (!frame || (frame.kind !== 'try' && frame.kind !== 'catch')) {
+          this.Error_('catch_ref outside of try');
+          return;
+        }
+        frame.inCatch = true;
+        this.stack_.length = frame.height;
+        for (const p of frame.blockParams) this.Push_(p);
+        const tagIdx = this.builder_.ResolveTag(args[0]);
+        const tagType = tagIdx >= 0 ? this.builder_.TagTypeAt(tagIdx) : null;
+        if (tagType) {
+          for (const p of tagType.params) this.Push_(p);
+        }
+        this.Push_('exnref');
+        frame.unreachable = false;
+        return;
+      }
       if (name === 'catch_all') {
         const frame = this.control_[this.control_.length - 1];
         if (!frame || (frame.kind !== 'try' && frame.kind !== 'catch')) {
@@ -3381,6 +3605,19 @@
         frame.inCatch = true;
         this.stack_.length = frame.height;
         for (const p of frame.blockParams) this.Push_(p);
+        frame.unreachable = false;
+        return;
+      }
+      if (name === 'catch_all_ref') {
+        const frame = this.control_[this.control_.length - 1];
+        if (!frame || (frame.kind !== 'try' && frame.kind !== 'catch')) {
+          this.Error_('catch_all_ref outside of try');
+          return;
+        }
+        frame.inCatch = true;
+        this.stack_.length = frame.height;
+        for (const p of frame.blockParams) this.Push_(p);
+        this.Push_('exnref');
         frame.unreachable = false;
         return;
       }
@@ -3450,7 +3687,20 @@
         this.PopExpected_(addr);
         return;
       }
-      if (name === 'data.drop' || name === 'elem.drop') {
+      if (name === 'data.drop') {
+        if (args.length < 1 || args.length > 1) {
+          this.Error_('data.drop: expected 1 argument, got ' + args.length);
+          return;
+        }
+        this.ResolveSegRef_(name, args[0]);
+        return;
+      }
+      if (name === 'elem.drop') {
+        if (args.length < 1 || args.length > 1) {
+          this.Error_('elem.drop: expected 1 argument, got ' + args.length);
+          return;
+        }
+        this.ResolveSegRef_(name, args[0]);
         return;
       }
 
@@ -4032,6 +4282,15 @@
       this.elems_ = [];
       this.datas_ = [];
       this.exports_ = [];
+      this.startFunc_ = null;
+      this.customSections_ = [];
+      this.funcNames_ = new Map();
+      this.localNames_ = new Map();
+      this.globalNames_ = new Map();
+      this.tableNames_ = new Map();
+      this.memNames_ = new Map();
+      this.tagNames_ = new Map();
+      this.labelNames_ = new Map();
       this.firstError_ = null;
       this.failFn_ = undefined;
     }
@@ -4265,6 +4524,7 @@
         maximum: desc.maximum !== undefined ? desc.maximum : desc.max,
         shared: !!desc.shared,
         addressType: desc.addressType || 'i32',
+        pageSize: desc.pageSize,
       };
       this.memDefs_.push(entry);
       return this.memImports_.length + this.memDefs_.length - 1;
@@ -4422,6 +4682,138 @@
         };
       }
       return this.failFn_;
+    }
+
+    /* --- start function --- */
+    AddStart(ref) {
+      return GuardPublic_(this, () => this.AddStart_(ref), this);
+    }
+    AddStart_(ref) {
+      this.startFunc_ = this.ResolveFunc(ref);
+      return this;
+    }
+
+    /* --- custom section --- */
+    AddCustomSection(name, bytes) {
+      return GuardPublic_(this, () => this.AddCustomSection_(name, bytes), this);
+    }
+    AddCustomSection_(name, bytes) {
+      assert(typeof name === 'string' && name.length > 0,
+        'AddCustomSection: name must be a non-empty string');
+      this.customSections_.push({ name, bytes: ToBytes(bytes) });
+      return this;
+    }
+
+    /* --- name section: function names --- */
+    SetFunctionName(funcRef, name) {
+      return GuardPublic_(this, () => {
+        assert(typeof name === 'string', 'SetFunctionName: name must be a string');
+        let builder;
+        if (typeof funcRef === 'string') {
+          assert(this.funcNames_.has(funcRef),
+            'SetFunctionName: unknown function "' + funcRef + '"');
+          builder = funcRef;
+        } else if (IsFunctionBuilder(funcRef)) {
+          builder = funcRef.name_;
+        } else {
+          builder = funcRef;
+        }
+        this.funcNames_.set(builder, name);
+        return this;
+      }, this);
+    }
+
+    /* --- name section: local names --- */
+    SetLocalName(funcRef, localIdx, name) {
+      return GuardPublic_(this, () => {
+        assert(typeof name === 'string', 'SetLocalName: name must be a string');
+        assert(Number.isInteger(localIdx) && localIdx >= 0,
+          'SetLocalName: localIdx must be a non-negative integer');
+        let fnName;
+        if (typeof funcRef === 'string') {
+          fnName = funcRef;
+        } else if (IsFunctionBuilder(funcRef)) {
+          fnName = funcRef.name_;
+        } else {
+          fnName = funcRef;
+        }
+        const key = fnName + ':' + localIdx;
+        this.localNames_.set(key, name);
+        return this;
+      }, this);
+    }
+
+    /* --- name section: global names --- */
+    SetGlobalName(globalIdx, name) {
+      return GuardPublic_(this, () => {
+        assert(typeof name === 'string', 'SetGlobalName: name must be a string');
+        this.globalNames_.set(globalIdx, name);
+        return this;
+      }, this);
+    }
+
+    /* --- name section: table names --- */
+    SetTableName(tableIdx, name) {
+      return GuardPublic_(this, () => {
+        assert(typeof name === 'string', 'SetTableName: name must be a string');
+        this.tableNames_.set(tableIdx, name);
+        return this;
+      }, this);
+    }
+
+    /* --- name section: memory names --- */
+    SetMemoryName(memIdx, name) {
+      return GuardPublic_(this, () => {
+        assert(typeof name === 'string', 'SetMemoryName: name must be a string');
+        this.memNames_.set(memIdx, name);
+        return this;
+      }, this);
+    }
+
+    /* --- name section: tag names --- */
+    SetTagName(tagIdx, name) {
+      return GuardPublic_(this, () => {
+        assert(typeof name === 'string', 'SetTagName: name must be a string');
+        this.tagNames_.set(tagIdx, name);
+        return this;
+      }, this);
+    }
+
+    /* --- compilation hints: per-function hints stored in custom section --- */
+    SetCompilationHint(funcRef, hint) {
+      return GuardPublic_(this, () => {
+        assert(typeof hint === 'string', 'SetCompilationHint: hint must be a string');
+        if (!this.compilationHints_) this.compilationHints_ = new Map();
+        let fnName;
+        if (typeof funcRef === 'string') {
+          fnName = funcRef;
+        } else if (IsFunctionBuilder(funcRef)) {
+          fnName = funcRef.name_;
+        } else {
+          fnName = funcRef;
+        }
+        this.compilationHints_.set(fnName, hint);
+        return this;
+      }, this);
+    }
+
+    /* --- extended name section: label names --- */
+    SetLabelName(funcRef, labelIdx, name) {
+      return GuardPublic_(this, () => {
+        assert(typeof name === 'string', 'SetLabelName: name must be a string');
+        if (!this.labelNames_) this.labelNames_ = new Map();
+        let fnName;
+        if (typeof funcRef === 'string') {
+          fnName = funcRef;
+        } else if (IsFunctionBuilder(funcRef)) {
+          fnName = funcRef.name_;
+        } else {
+          fnName = funcRef;
+        }
+        const key = fnName + ':' + labelIdx;
+        this.labelNames_.set(key, name);
+        return this;
+      }, this);
     }
 
     AddExport_(name, kind, ref) {
@@ -4982,6 +5374,7 @@
               maximum: m.maximum,
               shared: m.shared,
               addressType: m.addressType,
+              pageSize: m.pageSize,
             }, true);
           });
         });
@@ -5043,6 +5436,13 @@
             }
             www.WriteU32LEB(idx);
           });
+        });
+      }
+
+      /* --- start section --- */
+      if (this.startFunc_ !== null) {
+        w.WriteSection(SECT.START, (ww) => {
+          ww.WriteU32LEB(this.startFunc_);
         });
       }
 
@@ -5242,6 +5642,147 @@
               throw AttributeFrame_(e, d.definitionFrame);
             }
           });
+        });
+      }
+
+      /* --- name section (as custom section) --- */
+      if (this.funcNames_.size > 0 || this.localNames_.size > 0 ||
+        this.globalNames_.size > 0 || this.tableNames_.size > 0 ||
+        this.memNames_.size > 0 || this.tagNames_.size > 0) {
+        w.WriteSection(SECT.CUSTOM, (ww) => {
+          ww.WriteString('name');
+          /* --- function name subsection --- */
+          if (this.funcNames_.size > 0) {
+            ww.WriteU8(0x01);  /* --- func names subsection id --- */
+            const tmpW = new Writer();
+            let count = 0;
+            /* --- count exported and builder-named functions --- */
+            for (const fn of this.funcDefs_) {
+              const name = this.funcNames_.get(fn.name_);
+              if (name !== undefined) count++;
+            }
+            tmpW.WriteU32LEB(count);
+            let idx = 0;
+            for (const fn of this.funcDefs_) {
+              const name = this.funcNames_.get(fn.name_);
+              if (name !== undefined) {
+                tmpW.WriteU32LEB(idx);
+                tmpW.WriteString(name);
+              }
+              idx++;
+            }
+            ww.WriteU32LEB(tmpW.Length);
+            ww.bytes_.push.apply(ww.bytes_, tmpW.bytes_);
+          }
+          /* --- local name subsection --- */
+          if (this.localNames_.size > 0) {
+            ww.WriteU8(0x02);  /* --- local names subsection id --- */
+            const tmpW = new Writer();
+            tmpW.WriteU32LEB(this.funcDefs_.length);
+            let idx = 0;
+            for (const fn of this.funcDefs_) {
+              /* --- collect locals for this function --- */
+              const localEntries = [];
+              for (const [key, localName] of this.localNames_.entries()) {
+                const colonIdx = key.lastIndexOf(':');
+                if (colonIdx >= 0 && key.substring(0, colonIdx) === fn.name_) {
+                  const lIdx = parseInt(key.substring(colonIdx + 1), 10);
+                  localEntries.push({ index: lIdx, name: localName });
+                }
+              }
+              localEntries.sort((a, b) => a.index - b.index);
+              tmpW.WriteU32LEB(localEntries.length);
+              for (const entry of localEntries) {
+                tmpW.WriteU32LEB(entry.index);
+                tmpW.WriteString(entry.name);
+              }
+              idx++;
+            }
+            ww.WriteU32LEB(tmpW.Length);
+            ww.bytes_.push.apply(ww.bytes_, tmpW.bytes_);
+          }
+          /* --- global name subsection --- */
+          if (this.globalNames_.size > 0) {
+            ww.WriteU8(0x07);  /* --- global names subsection id --- */
+            const tmpW = new Writer();
+            tmpW.WriteU32LEB(this.globalNames_.size);
+            for (const [idx, name] of this.globalNames_.entries()) {
+              tmpW.WriteU32LEB(idx);
+              tmpW.WriteString(name);
+            }
+            ww.WriteU32LEB(tmpW.Length);
+            ww.bytes_.push.apply(ww.bytes_, tmpW.bytes_);
+          }
+          /* --- table name subsection --- */
+          if (this.tableNames_.size > 0) {
+            ww.WriteU8(0x04);  /* --- table names subsection id --- */
+            const tmpW = new Writer();
+            tmpW.WriteU32LEB(this.tableNames_.size);
+            for (const [idx, name] of this.tableNames_.entries()) {
+              tmpW.WriteU32LEB(idx);
+              tmpW.WriteString(name);
+            }
+            ww.WriteU32LEB(tmpW.Length);
+            ww.bytes_.push.apply(ww.bytes_, tmpW.bytes_);
+          }
+          /* --- memory name subsection --- */
+          if (this.memNames_.size > 0) {
+            ww.WriteU8(0x05);  /* --- memory names subsection id --- */
+            const tmpW = new Writer();
+            tmpW.WriteU32LEB(this.memNames_.size);
+            for (const [idx, name] of this.memNames_.entries()) {
+              tmpW.WriteU32LEB(idx);
+              tmpW.WriteString(name);
+            }
+            ww.WriteU32LEB(tmpW.Length);
+            ww.bytes_.push.apply(ww.bytes_, tmpW.bytes_);
+          }
+          /* --- tag name subsection --- */
+          if (this.tagNames_.size > 0) {
+            ww.WriteU8(0x06);  /* --- tag names subsection id --- */
+            const tmpW = new Writer();
+            tmpW.WriteU32LEB(this.tagNames_.size);
+            for (const [idx, name] of this.tagNames_.entries()) {
+              tmpW.WriteU32LEB(idx);
+              tmpW.WriteString(name);
+            }
+            ww.WriteU32LEB(tmpW.Length);
+            ww.bytes_.push.apply(ww.bytes_, tmpW.bytes_);
+          }
+        });
+      }
+
+      /* --- compilation hints custom section --- */
+      if (this.compilationHints_ && this.compilationHints_.size > 0) {
+        w.WriteSection(SECT.CUSTOM, (ww) => {
+          ww.WriteString('compilation-hints');
+          const tmpW = new Writer();
+          let count = 0;
+          for (const fn of this.funcDefs_) {
+            if (this.compilationHints_.has(fn.name_)) count++;
+          }
+          tmpW.WriteU32LEB(count);
+          let idx = 0;
+          for (const fn of this.funcDefs_) {
+            const hint = this.compilationHints_.get(fn.name_);
+            if (hint !== undefined) {
+              tmpW.WriteU32LEB(idx);
+              tmpW.WriteString(hint);
+            }
+            idx++;
+          }
+          ww.WriteU32LEB(tmpW.Length);
+          ww.bytes_.push.apply(ww.bytes_, tmpW.bytes_);
+        });
+      }
+
+      /* --- custom sections (user-supplied, last per spec) --- */
+      for (const cs of this.customSections_) {
+        w.WriteSection(SECT.CUSTOM, (ww) => {
+          ww.WriteString(cs.name);
+          for (let i = 0; i < cs.bytes.length; i++) {
+            ww.WriteU8(cs.bytes[i]);
+          }
         });
       }
 
