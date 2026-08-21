@@ -1,29 +1,32 @@
 # Browser Usage
 
-`WasmBuilder.js` can be used to create **WebAssembly** modules for *browser* testing and fuzzing.
+WasmBuilder works in the browser too. You can use it to build and test WebAssembly modules.
 
 ### Loading
 
-In the browser, load the builder before your code, either by pasting its
-contents inline or with a script tag:
+In the browser, add the builder before your code:
 
 ```html
-<script src="path/to/.js"></script>
+<script src="path/to/WasmBuilder.js"></script>
 ```
 
-In the SpiderMonkey shell, load it with `load("path/to/.js")`.
-
-
-### WasmGC Proposal HTML Demo. 
+In the SpiderMonkey shell:
 
 ```js
+load("path/to/WasmBuilder.js");
+```
+
+### WasmGC HTML Demo
+
+This example builds a module with GC structs, arrays, memory, tables, imports, and exports. It runs in the browser console.
+
+```html
 <script>
-/*Note: Use "c-log" for `print`, it would work in both environment (a) shell (b) browser. */
-/* For shell: load(""); */
-/* For browser: <script src=""></script> */
+// In the shell, use load("WasmBuilder.js") instead of a script tag.
+// Use console.log instead of print for browser output.
 
 const mb = new WasmModuleBuilder();
-/* GC AGGREGATE TYPES */
+
 const Point2D = mb.AddType({
   kind: 'struct',
   fields: [
@@ -61,7 +64,6 @@ const IntArray = mb.AddType({
   final: true,
 });
 
-/* 6 FUNCTION TYPES */
 
 const t_main = mb.AddType({
   params: [],
@@ -75,21 +77,11 @@ const t_log = mb.AddType({
 
 const t_ctor2d = mb.AddType({
   params: ['i32', 'i32'],
-  results: [
-    {
-      ref: Point2D,
-      nullable: true,
-    },
-  ],
+  results: [{ ref: Point2D, nullable: true }],
 });
 
 const t_sum2d = mb.AddType({
-  params: [
-    {
-      ref: Point2D,
-      nullable: true,
-    },
-  ],
+  params: [{ ref: Point2D, nullable: true }],
   results: ['i32'],
 });
 
@@ -100,15 +92,10 @@ const t_tag = mb.AddType({
 
 const t_arrayCtor = mb.AddType({
   params: ['i32', 'i32'],
-  results: [
-    {
-      ref: IntArray,
-      nullable: true,
-    },
-  ],
+  results: [{ ref: IntArray, nullable: true }],
 });
 
-/* IMPORTS */
+
 mb.AddImport('env', 'log', {
   kind: 'function',
   type: t_log,
@@ -126,11 +113,6 @@ mb.AddImport('env', 'tbl2', {
   initial: 1,
 });
 
-mb.AddImport('env', 'mem0', {
-  kind: 'memory',
-  initial: 1,
-});
-
 mb.AddImport('env', 'hostRef', {
   kind: 'global',
   type: 'externref',
@@ -142,50 +124,28 @@ mb.AddImport('env', 'tag0', {
   type: t_tag,
 });
 
-/* DEFINITIONS */
+
 mb.AddTable({
   element: 'funcref',
   initial: 2,
   maximum: 2,
 });
 
-mb.AddMemory({
-  initial: 1,
-});
+// One memory only (no duplicate with imported memory).
+mb.AddMemory({ initial: 1 });
 
-const g_anyref = mb.AddGlobal(
-  'anyref',
-  null,
-  true
-);
-
-const g_counter = mb.AddGlobal(
-  'i64',
-  0n,
-  true
-);
+const g_anyref = mb.AddGlobal('anyref', null, true);
+const g_counter = mb.AddGlobal('i64', 0n, true);
 
 mb.AddTag(t_tag);
 
-mb.AddElemSegment({
-  table: 0,
-  offset: 0,
-  indices: ['log'],
-});
-
+// Data segment with plain byte values.
 mb.AddDataSegment({
   offset: 0,
-  data: [
-    0x4444,
-    0x424242,
-    0x111111,
-    0x41414141,
-  ],
+  data: [0x44, 0x44, 0x42, 0x42, 0x11, 0x11, 0x41, 0x41],
 });
 
-/* FUNC 0: createPoint2D */
-const f_createPoint2D =
-  mb.AddFunction('createPoint2D', t_ctor2d);
+const f_createPoint2D = mb.AddFunction('createPoint2D', t_ctor2d);
 
 f_createPoint2D.Body([
   ['local.get', 0],
@@ -194,24 +154,18 @@ f_createPoint2D.Body([
   ['end'],
 ]);
 
-/* FUNC 1: pointSum */
-const f_pointSum =
-  mb.AddFunction('pointSum', t_sum2d);
+const f_pointSum = mb.AddFunction('pointSum', t_sum2d);
 
 f_pointSum.Body([
   ['local.get', 0],
   ['struct.get', Point2D, 0],
-
   ['local.get', 0],
   ['struct.get', Point2D, 1],
-
   ['i32.add'],
   ['end'],
 ]);
 
-/* FUNC 2: makeIntArray */
-const f_makeIntArray =
-  mb.AddFunction('makeIntArray', t_arrayCtor);
+const f_makeIntArray = mb.AddFunction('makeIntArray', t_arrayCtor);
 
 f_makeIntArray.Body([
   ['local.get', 0],
@@ -220,9 +174,7 @@ f_makeIntArray.Body([
   ['end'],
 ]);
 
-/* FUNC 3: boxDemo */
-const f_boxDemo =
-  mb.AddFunction('boxDemo', t_main);
+const f_boxDemo = mb.AddFunction('boxDemo', t_main);
 
 f_boxDemo.Body([
   ['i32.const', 42],
@@ -231,19 +183,17 @@ f_boxDemo.Body([
   ['end'],
 ]);
 
-/* FUNC 4: main */
-const f_main =
-  mb.AddFunction('main', t_main);
+
+const f_main = mb.AddFunction('main', t_main);
 
 f_main.Body([
-
-  /* Point2D(3,4) = 7 */
+  // Point2D(3,4) sum = 7
   ['i32.const', 3],
   ['i32.const', 4],
   ['call', f_createPoint2D],
   ['call', f_pointSum],
 
-  /* Point3D(1,2,3) -> Point2D = 3 */
+  // Point3D(1,2,3) as Point2D sum = 3
   ['i32.const', 1],
   ['i32.const', 2],
   ['i32.const', 3],
@@ -251,31 +201,30 @@ f_main.Body([
   ['call', f_pointSum],
   ['i32.add'],
 
-  /* Box = 42 */
+  // Box(42) = 42
   ['call', f_boxDemo],
   ['i32.add'],
 
-  /* IntArray(5,10) = length 5 */
+  // IntArray(5,10) length = 5
   ['i32.const', 5],
   ['i32.const', 10],
   ['call', f_makeIntArray],
   ['array.len'],
   ['i32.add'],
 
-  /* Memory store / load = 1 */
+  // memory store 1 at offset 0, load it back
   ['i32.const', 0],
   ['i32.const', 1],
   ['i32.store', 0],
-
   ['i32.const', 0],
   ['i32.load', 0],
   ['i32.add'],
 
-  /* +92 */
+  // + 92
   ['i32.const', 92],
   ['i32.add'],
 
-  /* Save, log and return */
+  // save, log, return
   ['local.set', 'result'],
   ['local.get', 'result'],
   ['call', 'log'],
@@ -285,81 +234,78 @@ f_main.Body([
 
 f_main.AddLocal('i32', 'result');
 
-/* EXPORTS */
+
 mb.ExportMemory(0, 'memory');
 mb.ExportGlobal(g_anyref, 'anyrefGlobal');
 f_main.ExportAs('main');
 
-/* ENCODE */
-const bytes = mb.Encode();
+try {
+  const bytes = mb.Encode();
 
-if (bytes === undefined) {
-  throw new Error('Encoding failed');
-}
+  if (bytes === undefined) {
+    console.error("Encoding returned undefined. Check builder errors above.");
+  } else {
+    console.log("Encoded size:", bytes.length, "bytes");
 
-/* IMPORT OBJECT */
-const imports = {
-  env: {
-    log: function (x) {
-      console.log('[host log]', x);
-    },
+    // Import object for the browser
+    const imports = {
+      env: {
+        log: function (x) {
+          console.log("[host log]", x);
+        },
 
-    tbl1: new WebAssembly.Table({
-      element: 'funcref',
-      initial: 1,
-    }),
+        tbl1: new WebAssembly.Table({
+          element: 'funcref',
+          initial: 1,
+        }),
 
-    tbl2: new WebAssembly.Table({
-      element: 'funcref',
-      initial: 1,
-    }),
+        tbl2: new WebAssembly.Table({
+          element: 'funcref',
+          initial: 1,
+        }),
 
-    mem0: new WebAssembly.Memory({
-      initial: 1,
-    }),
+        hostRef: {
+          value: { some: 'object' },
+        },
 
-    hostRef: {
-      value: {
-        some: 'object',
+        tag0: new WebAssembly.Tag({
+          parameters: ['i32'],
+        }),
       },
-    },
+    };
 
-    tag0: new WebAssembly.Tag({
-      parameters: ['i32'],
-    }),
-  },
-};
+    const wasmModule = new WebAssembly.Module(bytes);
+    const instance = new WebAssembly.Instance(wasmModule, imports);
 
-/* COMPILE */
-const wasmModule =
-  new WebAssembly.Module(bytes);
+    console.log("Summary:");
+    console.log(JSON.stringify(mb.Summary(), null, 2));
+    console.log("");
+    console.log("Calling main()...");
 
-const instance =
-  new WebAssembly.Instance(
-    wasmModule,
-    imports
-  );
+    const result = instance.exports.main();
 
-/* RUN */
-console.log("Summary:");
-console.log(JSON.stringify(mb.Summary(), null, 2));
-
-console.log("Encoded size:", bytes.length, "bytes");
-
-console.log("");
-console.log("Calling main()...");
-
-const result = instance.exports.main();
-
-console.log("Result:", result);
-
-console.log("");
-console.log("anyrefGlobal:", instance.exports.anyrefGlobal);
-console.log("Worked!");
+    console.log("Result:", result);
+    console.log("");
+    console.log("anyrefGlobal:", instance.exports.anyrefGlobal);
+    console.log("Worked!");
+  }
+} catch (e) {
+  console.error("Error:", e.message || e);
+  if (e instanceof CompilationFailed) {
+    console.error("Builder error. Check the error message above.");
+  }
+}
 </script>
 ```
 
-Save the file as `[.getAddrof].html` and open it directly in the browser.
-Open the *browser* **Developer Tools** and *check* the Console.
+Save the file as `demo.html` and open it in the browser. Open the Developer Tools console to see the output.
 
+### What this demo does
 
+1. Creates 4 GC types: Point2D, Point3D, MutableBox, IntArray
+2. Defines 5 functions: createPoint2D, pointSum, makeIntArray, boxDemo, main
+3. Imports a log function, 2 tables, a host reference, and an exception tag
+4. Exports memory, the anyref global, and the main function
+5. main() computes: 7 + 3 + 42 + 5 + 1 + 92 = 150
+
+*END OF THE EXPlANATION*
